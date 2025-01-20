@@ -1,8 +1,13 @@
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
+
+
+// Start game
 
 type Camel = {
   color: string
   position: number
+  stack: number
+  move: 'left' | 'right'
 }
 
 type GameState = {
@@ -10,6 +15,38 @@ type GameState = {
   track: (null | string)[]
   dice: string[]
   winner: string | null
+  crazyDice: string[]
+}
+
+const DEFAULT_ROUND_STATE = {
+  round: 0,
+  dice: [
+    { color: 'red', diceValue: 0 },
+    { color: 'blue',  diceValue: 0 },
+    { color: 'green', diceValue: 0 },
+    { color: 'yellow',  diceValue: 0 },
+    { color: 'purple', diceValue: 0 },
+    { color: 'silver', diceValue: 0 },
+  ],
+  mainDice: [
+    { color: 'red', steps: 0 },
+    { color: 'blue', steps: 0 },
+    { color: 'green', steps: 0 },
+    { color: 'yellow', steps: 0 },
+    { color: 'purple', steps: 0 },
+  ],
+  crazyDice: [
+    {
+      color: 'black',
+      steps: 0,
+    },
+    {
+      color: 'white',
+      steps: 0,
+    },
+  ],
+  activeDice: [],
+  maxActiveDice: 5,
 }
 
 const rollDice = (dice: string[]): { color: string; steps: number } => {
@@ -19,10 +56,66 @@ const rollDice = (dice: string[]): { color: string; steps: number } => {
   return { color: selectedDice, steps }
 }
 
+const rollDiceOnly = (): { steps: number } => {
+  const steps = Math.floor(Math.random() * 3) + 1
+  return { steps }
+}
+
+
 const moveCamel = (camels: Camel[], rollResult: { color: string; steps: number }): Camel[] => {
+
+  //--- Move camel to stack
+  const selectedCamel = camels.find((camel) => camel.color === rollResult.color);
+  if (!selectedCamel) return camels;
+
+  const nextCamelsWillHaveSamePosition = camels.filter((camel) => {
+    return camel.position === (selectedCamel?.position + rollResult.steps);
+  });
+
+  let newStack = 0
+  if (nextCamelsWillHaveSamePosition.length > 0) {
+    newStack = (nextCamelsWillHaveSamePosition.length - 1) + 1
+  }
+
+  //--- End move camel to stack
+
+  //--- Camel Follow the camel in same stack 
+  const camelsHaveSamePositionButHightStack = camels.filter((camel) => camel.position === selectedCamel.position && camel.stack > selectedCamel.stack);
+  //--- End Camel Follow the camel in same stack
+
+  return camels.map((camel) => {
+    if (camel.color === rollResult.color) {
+      return { 
+        ...camel,
+        // Move camel position
+        position: camel.position + rollResult.steps,
+        stack: newStack 
+      }
+    } else if (camelsHaveSamePositionButHightStack.some((currentCamel: Camel, index) => currentCamel.color === camel.color)) {
+      return { 
+        ...camel,
+        // Move camel position
+        position: camel.position + rollResult.steps,
+        // stack: newStack + (index + 1)
+        }
+    }
+
+    return camel
+  }
+  )
+}
+
+const moveCamelStack = (camels: Camel[], rollResult: { color: string; steps: number }): Camel[] => {
+  const camelsHaveSamePosition = camels.filter((camel) => camel.position === camel.position + rollResult.steps);
+
+  let newStack = 0
+  if (camelsHaveSamePosition.length > 0) {
+    newStack = camelsHaveSamePosition.length + 1
+  }
+
   return camels.map((camel) =>
     camel.color === rollResult.color
-      ? { ...camel, position: camel.position + rollResult.steps }
+      ? { ...camel, stack: newStack }
       : camel
   )
 }
@@ -33,8 +126,8 @@ const checkWinner = (camels: Camel[], trackLength: number): string | null => {
 }
 
 const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
-    const trackWidth = 400
-    const trackHeight = 300
+    const trackWidth = 1000
+    const trackHeight = 500
     const totalPositions = 16
     const positionPerSide = totalPositions / 4
   
@@ -105,13 +198,14 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
         })}
         {camels.map((camel) => {
           const { x, y } = getCamelPosition(camel)
+          console.log(camel.stack, 'camel.stack--------', camel.color)
           return (
             <div
               key={camel.color}
               style={{
                 position: 'absolute',
                 left: `${x}px`,
-                top: `${y}px`,
+                top: `${y + camel.stack * 20}px`,
                 width: '50px',
                 height: '50px',
                 backgroundColor: camel.color,
@@ -121,6 +215,7 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
                 alignItems: 'center',
                 color: 'white',
                 fontWeight: 'bold',
+                zIndex: camel.stack,
                 transition: 'left 0.5s, top 0.5s',
               }}
             >
@@ -182,47 +277,222 @@ const PlayerDashboard: React.FC<{ onPlaceBet: (color: string) => void }> = ({ on
 const CamelRaceGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     camels: [
-      { color: 'red', position: 0 },
-      { color: 'blue', position: 0 },
-      { color: 'green', position: 0 },
+      { color: 'red', position: 0, stack: 0, move: 'right', },
+      { color: 'blue', position: 0, stack: 0, move: 'right', },
+      { color: 'green', position: 0,  stack: 0, move: 'right', },
+      { color: 'yellow', position: 0,  stack: 0, move: 'right', },
+      { color: 'purple', position: 0,  stack: 0, move: 'right', },
+      { color: 'white', position: 0,  stack: 0, move: 'left', },
+      { color: 'black', position: 0, stack: 0, move: 'left', },
     ],
     track: Array(16).fill(null),
-    dice: ['red', 'blue', 'green'],
+    dice: ['red', 'blue', 'green', 'yellow', 'purple', 'silver'],
+    crazyDice: ['black', 'white'],
     winner: null,
-  })
+  });
 
-  const handleRollDice = () => {
-    if (gameState.winner) return
+  const [roundState, setRoundState] = useState<{
+    round: number;
+    dice: { color: string; diceValue: number }[];
+    mainDice: { color: string; steps: number }[];
+    crazyDice: { color: string; steps: number }[];
+    activeDice: { diceValue: number; color: string }[];
+    maxActiveDice: number;
+  }>(DEFAULT_ROUND_STATE);
 
-    const rollResult = rollDice(gameState.dice)
-    const updatedCamels = moveCamel(gameState.camels, rollResult)
-    const winner = checkWinner(updatedCamels, gameState.track.length - 1)
+  const [isGameRunning, setIsGameRunning] = useState(false);
+
+  const rollAndUpdate = useCallback(() => {
+    const rollResult = rollDice(gameState.dice);
+    const updatedCamels = moveCamel(gameState.camels, rollResult);
+    const winner = checkWinner(updatedCamels, gameState.track.length - 1);
 
     setGameState((prevState) => ({
       ...prevState,
       camels: updatedCamels,
       winner: winner,
-    }))
-  }
+    }));
+
+    return winner
+  }, [gameState.camels, gameState.dice, gameState.track]);
+
+  const startGame = () => {
+    setIsGameRunning(true);
+  };
+
+  // useEffect(() => {
+  //   if (gameState.winner) return;
+  //   setIsGameRunning(false)
+  // }, [gameState.winner]);
+
+  // useEffect(() => {
+  //     const rollLoop = () => {
+  //       if (!isGameRunning || gameState.winner) return;
+  //       const winner = rollAndUpdate()
+  //       if (!winner) {
+  //         setTimeout(rollLoop, 1000)
+  //       } else {
+  //         setIsGameRunning(false)
+  //       }
+  //     };
+  
+  //     rollLoop();
+  // },  [isGameRunning, gameState.winner, rollAndUpdate]);
+  
+  const startGameDice = useCallback(() => {
+    const startDice = roundState.mainDice.map((dice) => {
+      const roll = rollDice(gameState.dice);
+      console.log(roll.steps, 'roll', dice);
+      return { ...dice, steps: roll.steps - 1 };
+    });
+    setRoundState((prevState) => ({
+      ...prevState,
+      round: prevState.round + 1,
+      startDice,
+    }));
+
+    let camels = gameState.camels
+
+    startDice.forEach((rollResult) => {
+      camels = moveCamel(camels, rollResult)
+    });
+    const movedCamel = camels;
+    console.log(movedCamel , 'movedCamel')
+    setGameState((prevState) => ({
+      ...prevState,
+      camels: movedCamel,
+    }));
+    
+  }, [gameState.camels, gameState.dice, roundState.mainDice]);
 
   const handlePlaceBet = (color: string) => {
-    console.log(`Player bet on ${color} camel`)
-  }
+    console.log(`Player bet on ${color} camel`);
+  };
+
+  const roleCrazyDice = () => {
+    const crazyDice = roundState.crazyDice.map((dice) => {
+      const roll = rollDiceOnly();
+      return { ...dice, steps:(-roll.steps) - 1 };
+    });
+    setRoundState((prevState) => ({
+      ...prevState,
+      crazyDice,
+    }));
+
+    let camels = gameState.camels
+
+    crazyDice.forEach((rollResult) => {
+      camels = moveCamel(camels, rollResult)
+    });
+  
+    const movedCamel = camels;
+
+    setGameState((prevState) => ({
+      ...prevState,
+      camels: movedCamel,
+    }));
+  };
+
+  const handleRoleDice = () => {
+    // const dice = roundState.dice.map((dice) => {
+    //   const roll = rollDiceOnly();
+    //   return { ...dice, diceValue: roll.steps };
+    // });
+
+    if (roundState.activeDice.length >= roundState.maxActiveDice) {
+      alert('You can not roll more than 5 dice');
+      return;
+    }
+
+    const activeDiceColors = roundState.activeDice.map((activeDice) => activeDice.color);
+
+    const inActiveDiceColors = gameState.dice.filter((dice) => !activeDiceColors.includes(dice));
+
+    const selectedDice = rollDice(inActiveDiceColors);
+   
+    setRoundState((prevState) => ({
+      ...prevState,
+      activeDice: [...prevState.activeDice, {
+        diceValue: selectedDice.steps,
+        color: selectedDice.color,
+      }],
+    }));
+
+    const updatedCamels = moveCamel(gameState.camels, selectedDice);
+
+    const winner = checkWinner(updatedCamels, gameState.track.length - 1);
+
+    setGameState((prevState) => ({
+      ...prevState,
+      camels: updatedCamels,
+      winner: winner,
+    }));
+  };
+
+  const handleNewRound = () => {
+    setRoundState((prevState) => ({
+      ...DEFAULT_ROUND_STATE,
+      round: prevState.round + 1,
+    }));
+  };
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1 style={{ textAlign: 'center' }}>Project Desert Game</h1>
+      <h1 style={{ textAlign: 'center' }}>Camel Race Game</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2rem 0' }}>
+        {Array.from({ length: roundState.maxActiveDice }).map((_, diceIndex) => {
+
+          const activeDice = roundState.activeDice.find((_, activeIndex) => activeIndex === diceIndex);
+
+          const color = activeDice ? activeDice.color : 'white';
+          const diceValue = activeDice ? activeDice.diceValue : 0;
+
+          return (
+          <div style={{ width: '100px', height: '100px', backgroundColor: color, color: '#000' }} key={diceIndex}>
+            <h3>
+              {diceValue}
+            </h3>
+          </div>
+        )})}
+      </div>
       <Track camels={gameState.camels} />
+      {/* {JSON.stringify(roundState, null, 4)} */}
+      {/* <DiceRoller onRoll={rollAndUpdate} /> */}
       {gameState.winner ? (
         <h2 style={{ textAlign: 'center', color: gameState.winner }}>
           {gameState.winner.charAt(0).toUpperCase() + gameState.winner.slice(1)} Camel Wins!
         </h2>
+      ) : isGameRunning ? (
+        <h2 style={{ textAlign: 'center' }}>Rolling Dice...</h2>
       ) : (
-        <DiceRoller onRoll={handleRollDice} />
+        <button
+          onClick={startGame}
+          style={{
+            padding: '10px 20px',
+            fontSize: '18px',
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer',
+          }}
+        >
+          Start Game
+        </button>
       )}
-      <PlayerDashboard onPlaceBet={handlePlaceBet} />
+      {/* <button onClick={startGameDice}>Start Game Dice</button>
+      <button onClick={roleCrazyDice}>Role Crazy Dice</button>
+      <button onClick={roleCrazyDice}>Role Dice in round {roundState.round}</button> */}
+    <div style={{ margin: '20px auto' }}>
+      <button onClick={handleRoleDice}>Role Dice in round {roundState.round}</button>
+      <button onClick={handleNewRound}>new round</button>
     </div>
-  )
-}
+      <PlayerDashboard onPlaceBet={handlePlaceBet} />
+      <pre style={{ width: '500px', margin: '20px auto', padding: '10px', backgroundColor: '#000', border: '1px solid #ddd', borderRadius: '5px', overflowX: 'auto' }}>
+        {JSON.stringify(gameState.camels, null, 4)}
+      </pre>
+    </div>
+  );
+};
 
-export default CamelRaceGame
+export default CamelRaceGame;
