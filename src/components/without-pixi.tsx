@@ -486,49 +486,51 @@ const CamelRaceGame: React.FC = () => {
       <Track camels={gameState.camels} />
       {/* {JSON.stringify(roundState, null, 4)} */}
       {/* <DiceRoller onRoll={handleRoleDice} /> */}
-      {gameState.winner ? (
-        <h2 style={{ textAlign: "center", color: gameState.winner }}>
-          {gameState.winner.charAt(0).toUpperCase() + gameState.winner.slice(1)}{" "}
-          Camel Wins!
-        </h2>
-      ) : (
-        <>
-          {roundState.activeDice.length >= roundState.maxActiveDice ? (
-            <button
-              style={{
-              margin: "20px auto",
-              padding: "10px 20px",
-              fontSize: "18px",
-              backgroundColor: "#ffc107",
-              color: "white",
-              border: "none",
-              borderRadius: "5px",
-              cursor: "pointer",
-              }}
-              onClick={handleNewRound}
-            >
-              Next round
-            </button>
-          ) : (
-            <button
-              style={{
+      <div style={{ margin: "40px" }}>
+        {gameState.winner ? (
+          <h2 style={{ textAlign: "center", color: gameState.winner }}>
+            {gameState.winner.charAt(0).toUpperCase() + gameState.winner.slice(1)}{" "}
+            Camel Wins!
+          </h2>
+        ) : (
+          <>
+            {roundState.activeDice.length >= roundState.maxActiveDice ? (
+              <button
+                style={{
                 margin: "20px auto",
                 padding: "10px 20px",
                 fontSize: "18px",
-                backgroundColor: "#007bff",
+                backgroundColor: "#ffc107",
                 color: "white",
                 border: "none",
                 borderRadius: "5px",
                 cursor: "pointer",
-              }}
-              onClick={handleRoleDice}
-            >
-              Roll Dice
-            </button>
-          )}
-          {/* <DiceRoller onRoll={handleRoleDice} /> */}
-        </>
-      )}
+                }}
+                onClick={handleNewRound}
+              >
+                Next round
+              </button>
+            ) : (
+              <button
+                style={{
+                  margin: "20px auto",
+                  padding: "10px 20px",
+                  fontSize: "18px",
+                  backgroundColor: "#007bff",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "5px",
+                  cursor: "pointer",
+                }}
+                onClick={handleRoleDice}
+              >
+                Roll Dice
+              </button>
+            )}
+            {/* <DiceRoller onRoll={handleRoleDice} /> */}
+          </>
+        )}
+      </div>
       {/* <button onClick={startGameDice}>Start Game Dice</button>
       <button onClick={roleCrazyDice}>Role Crazy Dice</button>
       <button onClick={roleCrazyDice}>Role Dice in round {roundState.round}</button> */}
