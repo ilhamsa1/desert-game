@@ -6,7 +6,7 @@ type Camel = {
   color: string;
   position: number;
   stack: number;
-  move: "left" | "right";
+  direction: "left" | "right";
 };
 
 type GameState = {
@@ -71,12 +71,15 @@ const moveCamel = (
   if (!selectedCamel) return camels;
 
   const nextCamelsWillHaveSamePosition = camels.filter((camel) => {
+    if (selectedCamel?.direction === 'left') {
+      return camel.position === selectedCamel?.position - rollResult.steps;
+    }
     return camel.position === selectedCamel?.position + rollResult.steps;
   });
 
   let newStack = 0;
   if (nextCamelsWillHaveSamePosition.length > 0) {
-    newStack = nextCamelsWillHaveSamePosition.length - 1 + 1;
+    newStack = (nextCamelsWillHaveSamePosition.length - 1) + 1;
   }
 
   //--- End move camel to stack
@@ -88,25 +91,36 @@ const moveCamel = (
       camel.stack > selectedCamel.stack
   );
   //--- End Camel Follow the camel in same stack
-
+  console.log(camelsHaveSamePositionButHightStack, 'camelsHaveSamePositionButHightStack')
   return camels.map((camel) => {
     const camelHaveSamePositionButHightStackIndex =
       camelsHaveSamePositionButHightStack.findIndex(
         (currentCamel: Camel) => currentCamel.color === camel.color
       );
 
+      console.log(camelHaveSamePositionButHightStackIndex, 'camelsHaveSamePositionButHightStack', camel.color)
+      let newPosition  = camel.position + rollResult.steps
+      // TODO: 16 is track length
+      if (selectedCamel.direction === 'left' && camel.color === selectedCamel.color ) { 
+        newPosition = camel.position - rollResult.steps;
+      }
+
+      if (selectedCamel.direction === 'left' && camelHaveSamePositionButHightStackIndex >= 0) { 
+        newPosition = camel.position - rollResult.steps;
+      }
+
     if (camel.color === rollResult.color) {
       return {
         ...camel,
         // Move camel position
-        position: camel.position + rollResult.steps,
+        position: newPosition,
         stack: newStack,
       };
     } else if (camelHaveSamePositionButHightStackIndex >= 0) {
       return {
         ...camel,
         // Move camel position
-        position: camel.position + rollResult.steps,
+        position: newPosition,
         stack: newStack + (camelHaveSamePositionButHightStackIndex + 1),
       };
     }
@@ -135,7 +149,7 @@ const moveCamel = (
 
 const checkWinner = (camels: Camel[], trackLength: number): string | null => {
   const winner = camels
-    .filter((camel) => camel.position > trackLength)
+    .filter((camel) => camel.position > trackLength && camel.direction === 'right')
     .sort((a, b) => b.stack - a.stack)[0];
   return winner ? winner.color : null;
 };
@@ -147,27 +161,37 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
   const positionPerSide = totalPositions / 4;
 
   const getCamelPosition = (camel: Camel) => {
-    const position = camel.position % totalPositions;
+    let position = camel.position;
+
+    // Adjust position based on direction
+    if (camel.direction === 'right') {
+      position = (position % totalPositions) + 1;
+    } else if (camel.direction === 'left') {
+      position = (position % totalPositions) + 1 ;
+    }
+    console.log(position, '----------', camel.color, position, totalPositions)
+
+    console.log(  (position % totalPositions) + 1, position % totalPositions)
 
     let x = 0,
       y = 0;
 
-    if (position < positionPerSide) {
-      x = (trackWidth / positionPerSide) * position;
+    if (position <= positionPerSide) {
+      x = (trackWidth / positionPerSide) * (position - 1);
       y = 0;
-    } else if (position < positionPerSide * 2) {
+    } else if (position <= positionPerSide * 2) {
       x = trackWidth;
-      y = (trackHeight / positionPerSide) * (position - positionPerSide);
-    } else if (position < positionPerSide * 3) {
+      y = (trackHeight / positionPerSide) * (position - positionPerSide - 1);
+    } else if (position <= positionPerSide * 3) {
       x =
         trackWidth -
-        (trackWidth / positionPerSide) * (position - positionPerSide * 2);
+        (trackWidth / positionPerSide) * (position - positionPerSide * 2 - 1);
       y = trackHeight;
     } else {
       x = 0;
       y =
         trackHeight -
-        (trackHeight / positionPerSide) * (position - positionPerSide * 3);
+        (trackHeight / positionPerSide) * (position - positionPerSide * 3 - 1);
     }
 
     return { x: x - 25, y: y - 25 };
@@ -223,7 +247,6 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
       })}
       {camels.map((camel) => {
         const { x, y } = getCamelPosition(camel);
-        console.log(camel.stack, "camel.stack--------", camel.color);
         return (
           <div
             key={camel.color}
@@ -282,13 +305,13 @@ const PlayerDashboard: React.FC<{ onPlaceBet: (color: string) => void }> = ({
 const CamelRaceGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     camels: [
-      { color: "red", position: 0, stack: 0, move: "right" },
-      { color: "blue", position: 0, stack: 0, move: "right" },
-      { color: "green", position: 0, stack: 0, move: "right" },
-      { color: "yellow", position: 0, stack: 0, move: "right" },
-      { color: "purple", position: 0, stack: 0, move: "right" },
-      { color: "white", position: 0, stack: 0, move: "left" },
-      { color: "black", position: 0, stack: 0, move: "left" },
+      { color: "red", position: 16, stack: 0, direction: "left" },
+      { color: "blue", position: 0, stack: 0, direction: "right" },
+      { color: "green", position: 0, stack: 0, direction: "right" },
+      { color: "yellow", position: 0, stack: 0, direction: "right" },
+      { color: "purple", position: 0, stack: 0, direction: "right" },
+      { color: "white", position: 16, stack: 0, direction: "left" },
+      { color: "black", position: 16, stack: 0, direction: "left" },
     ],
     track: Array(16).fill(null),
     dice: ["red", "blue", "green", "yellow", "purple", "silver"],
@@ -414,7 +437,7 @@ const CamelRaceGame: React.FC = () => {
     setGameState((prevState) => ({
       ...prevState,
       camels: updatedCamels,
-      winner: winner,
+      winner,
     }));
   }, [gameState.camels, gameState.dice, gameState.track.length, roundState.activeDice, roundState.maxActiveDice])
 
@@ -433,17 +456,17 @@ const CamelRaceGame: React.FC = () => {
       if (!gameState.winner) {
         console.log('Executing handleRoleDice');
         if (roundState.activeDice.length >= roundState.maxActiveDice) {
-          handleNewRound();
+          handleNewRound()
         } else {
-          handleRoleDice();
+          handleRoleDice()
         }
       } else {
-        setIsGameRunning(false);
-        clearInterval(interval);
+        setIsGameRunning(false)
+        clearInterval(interval)
       }
     }, 1000);
   
-    return () => clearInterval(interval); // Cleanup on component unmount or re-run
+    return () => clearInterval(interval)
   }, [gameState.winner, handleRoleDice, isGameRunning, roundState.activeDice.length, roundState.maxActiveDice]);
   
   // const roleCrazyDice = () => {
