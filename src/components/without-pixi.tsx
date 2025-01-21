@@ -148,9 +148,24 @@ const moveCamel = (
 // };
 
 const checkWinner = (camels: Camel[], trackLength: number): string | null => {
-  const winner = camels
+
+  let winner = null;
+
+  const normalCammelWin = camels
     .filter((camel) => camel.position > trackLength && camel.direction === 'right')
     .sort((a, b) => b.stack - a.stack)[0];
+
+  winner = normalCammelWin
+
+  if (!winner) {
+    const crazyCammelWin = camels 
+    .filter((camel) => camel.position <= 0 && camel.direction === 'left')
+    .sort((a, b) => b.stack - a.stack)[0];
+
+    winner = crazyCammelWin
+  }
+
+
   return winner ? winner.color : null;
 };
 
