@@ -91,7 +91,7 @@ const moveCamel = (
       camel.stack > selectedCamel.stack
   );
   //--- End Camel Follow the camel in same stack
-  console.log(camelsHaveSamePositionButHightStack, 'camelsHaveSamePositionButHightStack')
+
   return camels.map((camel) => {
     const camelHaveSamePositionButHightStackIndex =
       camelsHaveSamePositionButHightStack.findIndex(
@@ -261,7 +261,7 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              color: "white",
+              color: camel.color === 'white'|| camel.color === 'yellow'  ? 'black' : 'white',
               fontWeight: "bold",
               zIndex: camel.stack,
               transition: "left 0.5s, top 0.5s",
@@ -305,7 +305,7 @@ const PlayerDashboard: React.FC<{ onPlaceBet: (color: string) => void }> = ({
 const CamelRaceGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     camels: [
-      { color: "red", position: 16, stack: 0, direction: "left" },
+      { color: "red", position: 0, stack: 0, direction: "right" },
       { color: "blue", position: 0, stack: 0, direction: "right" },
       { color: "green", position: 0, stack: 0, direction: "right" },
       { color: "yellow", position: 0, stack: 0, direction: "right" },
@@ -314,7 +314,7 @@ const CamelRaceGame: React.FC = () => {
       { color: "black", position: 16, stack: 0, direction: "left" },
     ],
     track: Array(16).fill(null),
-    dice: ["red", "blue", "green", "yellow", "purple", "silver"],
+    dice: ["red", "blue", "green", "yellow", "purple", "black", 'white'],
     crazyDice: ["black", "white"],
     winner: null,
   });
@@ -512,7 +512,7 @@ const CamelRaceGame: React.FC = () => {
               (_, activeIndex) => activeIndex === diceIndex
             );
 
-            const color = activeDice ? activeDice.color : "white";
+            const color = activeDice ? activeDice.color : "#bbb";
             const diceValue = activeDice ? activeDice.diceValue : 0;
 
             return (
@@ -521,7 +521,7 @@ const CamelRaceGame: React.FC = () => {
                   width: "100px",
                   height: "100px",
                   backgroundColor: color,
-                  color: "#000",
+                  color:  color === 'black' ? 'white' : 'black',
                 }}
                 key={diceIndex}
               >
