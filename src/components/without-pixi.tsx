@@ -557,7 +557,7 @@ const CamelRaceGame: React.FC = () => {
               console.log('ready')
               setIsGameRunning(true)
             }}>
-              Auto start
+              Auto play
             </button>
             {roundState.activeDice.length >= roundState.maxActiveDice ? (
               <button
