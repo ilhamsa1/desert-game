@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 // Start game
 
@@ -305,6 +305,8 @@ const CamelRaceGame: React.FC = () => {
     maxActiveDice: number;
   }>(DEFAULT_ROUND_STATE);
 
+  const [isGameRunning, setIsGameRunning] = useState(false);
+
   // const [isGameRunning, setIsGameRunning] = useState(false);
 
   // const rollAndUpdate = useCallback(() => {
@@ -373,31 +375,7 @@ const CamelRaceGame: React.FC = () => {
     console.log(`Player bet on ${color} camel`);
   };
 
-  // const roleCrazyDice = () => {
-  //   const crazyDice = roundState.crazyDice.map((dice) => {
-  //     const roll = rollDiceOnly();
-  //     return { ...dice, steps: -roll.steps - 1 };
-  //   });
-  //   setRoundState((prevState) => ({
-  //     ...prevState,
-  //     crazyDice,
-  //   }));
-
-  //   let camels = gameState.camels;
-
-  //   crazyDice.forEach((rollResult) => {
-  //     camels = moveCamel(camels, rollResult);
-  //   });
-
-  //   const movedCamel = camels;
-
-  //   setGameState((prevState) => ({
-  //     ...prevState,
-  //     camels: movedCamel,
-  //   }));
-  // };
-
-  const handleRoleDice = () => {
+  const handleRoleDice = useCallback(() => {
     // const dice = roundState.dice.map((dice) => {
     //   const roll = rollDiceOnly();
     //   return { ...dice, diceValue: roll.steps };
@@ -438,7 +416,7 @@ const CamelRaceGame: React.FC = () => {
       camels: updatedCamels,
       winner: winner,
     }));
-  };
+  }, [gameState.camels, gameState.dice, gameState.track.length, roundState.activeDice, roundState.maxActiveDice])
 
   const handleNewRound = () => {
     setRoundState((prevState) => ({
@@ -446,6 +424,53 @@ const CamelRaceGame: React.FC = () => {
       round: prevState.round + 1,
     }));
   };
+
+  useEffect(() => {
+    if (!isGameRunning) return;
+  
+    const interval = setInterval(() => {
+      console.log('gggggg', gameState.winner);
+      if (!gameState.winner) {
+        console.log('Executing handleRoleDice');
+        if (roundState.activeDice.length >= roundState.maxActiveDice) {
+          handleNewRound();
+        } else {
+          handleRoleDice();
+        }
+      } else {
+        setIsGameRunning(false);
+        clearInterval(interval);
+      }
+    }, 1000);
+  
+    return () => clearInterval(interval); // Cleanup on component unmount or re-run
+  }, [gameState.winner, handleRoleDice, isGameRunning, roundState.activeDice.length, roundState.maxActiveDice]);
+  
+  // const roleCrazyDice = () => {
+  //   const crazyDice = roundState.crazyDice.map((dice) => {
+  //     const roll = rollDiceOnly();
+  //     return { ...dice, steps: -roll.steps - 1 };
+  //   });
+  //   setRoundState((prevState) => ({
+  //     ...prevState,
+  //     crazyDice,
+  //   }));
+
+  //   let camels = gameState.camels;
+
+  //   crazyDice.forEach((rollResult) => {
+  //     camels = moveCamel(camels, rollResult);
+  //   });
+
+  //   const movedCamel = camels;
+
+  //   setGameState((prevState) => ({
+  //     ...prevState,
+  //     camels: movedCamel,
+  //   }));
+  // };
+
+
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
@@ -493,7 +518,24 @@ const CamelRaceGame: React.FC = () => {
             Camel Wins!
           </h2>
         ) : (
-          <>
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+            <button 
+               style={{
+                margin: "20px auto",
+                padding: "10px 20px",
+                fontSize: "18px",
+                backgroundColor: "#FF0000",
+                color: "white",
+                border: "none",
+                borderRadius: "5px",
+                cursor: "pointer",
+              }}
+            onClick={() => {
+              console.log('ready')
+              setIsGameRunning(true)
+            }}>
+              Auto start
+            </button>
             {roundState.activeDice.length >= roundState.maxActiveDice ? (
               <button
                 style={{
@@ -528,7 +570,7 @@ const CamelRaceGame: React.FC = () => {
               </button>
             )}
             {/* <DiceRoller onRoll={handleRoleDice} /> */}
-          </>
+          </div>
         )}
       </div>
       {/* <button onClick={startGameDice}>Start Game Dice</button>
