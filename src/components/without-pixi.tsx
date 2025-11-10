@@ -783,13 +783,13 @@ const CamelRaceGame: React.FC = () => {
   const connectionsRef = useRef<DataConnection[]>([]);
 
   // Broadcast data to all connected peers
-  const broadcastToPeers = (data: WebRTCMessage) => {
+  const broadcastToPeers = useRef((data: WebRTCMessage) => {
     connectionsRef.current.forEach(conn => {
       if (conn.open) {
         conn.send(data);
       }
     });
-  };
+  });
 
   // Setup peer connection handlers
   const setupConnection = (conn: DataConnection) => {
@@ -803,40 +803,55 @@ const CamelRaceGame: React.FC = () => {
         setLobbyPlayers(prev => {
           const exists = prev.some(p => p.id === message.player.id);
           if (exists) return prev;
-          return [...prev, message.player];
+          const updatedPlayers = [...prev, message.player];
+          
+          // If host, send updated lobby state to new player (including them)
+          if (isHost) {
+            // Use setTimeout to ensure this runs after state update
+            setTimeout(() => {
+              conn.send({
+                type: 'LOBBY_UPDATE',
+                players: updatedPlayers,
+              } as LobbyUpdateMessage);
+            }, 0);
+          }
+          
+          return updatedPlayers;
         });
         setMessage(`${message.player.name} joined the lobby!`);
-        
-        // If host, send current lobby state to new player
-        if (isHost) {
-          conn.send({
-            type: 'LOBBY_UPDATE',
-            players: lobbyPlayers,
-          } as LobbyUpdateMessage);
-        }
       } else if (message.type === 'LOBBY_UPDATE') {
         // Receive lobby update from host
-        setLobbyPlayers(message.players);
+        if (message.players && Array.isArray(message.players)) {
+          setLobbyPlayers(message.players);
+        }
       } else if (message.type === 'GAME_START') {
         // Game is starting
-        setGameState(message.gameState);
-        setSetupMode('game');
-        setMessage('Game started by host!');
+        if (message.gameState && message.gameState.players && message.gameState.players.length > 0) {
+          setGameState(message.gameState);
+          setSetupMode('game');
+          setMessage('Game started by host!');
+        }
       } else if (message.type === 'GAME_STATE_UPDATE') {
         // Sync game state
-        setGameState(message.gameState);
-        if (message.message) {
-          setMessage(message.message);
+        if (message.gameState && message.gameState.players && message.gameState.players.length > 0) {
+          setGameState(message.gameState);
+          if (message.message) {
+            setMessage(message.message);
+          }
         }
       } else if (message.type === 'PLAYER_ACTION') {
         // Handle remote player action
         handleAction(message.action, message.data, true);
       } else if (message.type === 'BOT_ADD') {
         // Host added a bot
-        setLobbyPlayers(prev => [...prev, message.bot]);
+        if (message.bot && message.bot.id && message.bot.name) {
+          setLobbyPlayers(prev => [...prev, message.bot]);
+        }
       } else if (message.type === 'BOT_REMOVE') {
         // Host removed a bot
-        setLobbyPlayers(prev => prev.filter(p => p.id !== message.botId));
+        if (message.botId) {
+          setLobbyPlayers(prev => prev.filter(p => p.id !== message.botId));
+        }
       }
     });
 
@@ -1039,7 +1054,7 @@ const CamelRaceGame: React.FC = () => {
     
     // Broadcast bot addition to all peers
     if (isHost) {
-      broadcastToPeers({
+      broadcastToPeers.current({
         type: 'BOT_ADD',
         bot: newBot,
       });
@@ -1051,7 +1066,7 @@ const CamelRaceGame: React.FC = () => {
     
     // Broadcast bot removal to all peers
     if (isHost) {
-      broadcastToPeers({
+      broadcastToPeers.current({
         type: 'BOT_REMOVE',
         botId,
       });
@@ -1074,7 +1089,7 @@ const CamelRaceGame: React.FC = () => {
     
     // Broadcast game start to all peers
     if (isHost) {
-      broadcastToPeers({
+      broadcastToPeers.current({
         type: 'GAME_START',
         gameState: newGameState,
       });
@@ -1134,18 +1149,19 @@ const CamelRaceGame: React.FC = () => {
   // Sync game state to peers whenever it changes
   useEffect(() => {
     if (gameState && isHost && connections.length > 0) {
-      broadcastToPeers({
+      broadcastToPeers.current({
         type: 'GAME_STATE_UPDATE',
         gameState: gameState,
       });
     }
-  }, [gameState, isHost, connections.length, broadcastToPeers]);
+  }, [gameState, isHost, connections.length]);
 
   // Handle bot turn
   useEffect(() => {
     if (!gameState || gameState.gameEnded || setupMode !== "game") return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
+    if (!currentPlayer) return;
     
     // Don't trigger bot actions if we're waiting for manual next turn advancement
     if (currentPlayer.isBot && !waitingForNextTurn) {
@@ -1222,10 +1238,11 @@ const CamelRaceGame: React.FC = () => {
     if (!gameState || gameState.gameEnded) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
+    if (!currentPlayer) return;
     
     // If this is a local player action in multiplayer, broadcast it
     if (currentPlayer.isLocal && !skipDialog && connections.length > 0) {
-      broadcastToPeers({
+      broadcastToPeers.current({
         type: 'PLAYER_ACTION',
         action,
         data,
@@ -1419,6 +1436,7 @@ const CamelRaceGame: React.FC = () => {
     if (!placingTile || !gameState) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
+    if (!currentPlayer) return;
 
     // Check validity
     if (position === 0) {
@@ -2017,6 +2035,32 @@ const CamelRaceGame: React.FC = () => {
   }
 
   const currentPlayer = gameState.players[gameState.currentPlayer];
+  if (!currentPlayer) {
+    return (
+      <div style={{ padding: "40px", textAlign: "center", color: "#8B4513" }}>
+        <h2>Error: Invalid game state</h2>
+        <button
+          onClick={() => {
+            setGameState(null);
+            setSetupMode("menu");
+            setMessage("");
+          }}
+          style={{
+            padding: "15px 30px",
+            fontSize: "18px",
+            backgroundColor: "#FF5722",
+            color: "white",
+            border: "3px solid #333",
+            borderRadius: "10px",
+            cursor: "pointer",
+            fontWeight: "bold",
+          }}
+        >
+          🏠 Back to Menu
+        </button>
+      </div>
+    );
+  }
   const isLocalPlayerTurn = currentPlayer.isLocal && !waitingForNextTurn;
 
   return (
