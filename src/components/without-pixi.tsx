@@ -535,124 +535,6 @@ const Track: React.FC<{
   );
 };
 
-// Centered Dice Roller
-const CenteredDiceRoller: React.FC<{
-  availableDice: DiceColor[];
-  onRoll: () => void;
-  disabled: boolean;
-  currentPlayerName: string;
-}> = ({ availableDice, onRoll, disabled, currentPlayerName }) => {
-  const allDice: DiceColor[] = ["red", "blue", "green", "yellow", "purple"];
-  
-  return (
-    <div style={{
-      position: "relative",
-      margin: "30px auto",
-      padding: "40px",
-      backgroundColor: "#8B4513",
-      borderRadius: "20px",
-      border: "5px solid #654321",
-      boxShadow: "0 10px 20px rgba(0,0,0,0.5)",
-      textAlign: "center",
-      maxWidth: "700px",
-    }}>
-      <h2 style={{ 
-        color: "#FFE66D", 
-        marginBottom: "20px",
-        fontSize: "32px",
-        textShadow: "2px 2px 4px rgba(0,0,0,0.5)",
-      }}>
-        🎲 Dice Pyramid 🎲
-      </h2>
-      
-      <div style={{
-        display: "flex",
-        justifyContent: "center",
-        gap: "15px",
-        flexWrap: "wrap",
-        marginBottom: "30px",
-      }}>
-        {allDice.map(color => {
-          const isAvailable = availableDice.includes(color);
-          return (
-            <div
-              key={color}
-              style={{
-                width: "70px",
-                height: "70px",
-                backgroundColor: isAvailable ? color : "#333",
-                border: `4px solid ${isAvailable ? "#FFF" : "#666"}`,
-                borderRadius: "12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "32px",
-                color: color === "yellow" ? "black" : "white",
-                opacity: isAvailable ? 1 : 0.3,
-                transition: "all 0.3s ease",
-                boxShadow: isAvailable ? "0 4px 8px rgba(255,255,255,0.3)" : "inset 0 4px 8px rgba(0,0,0,0.5)",
-                transform: isAvailable ? "scale(1)" : "scale(0.9)",
-              }}
-            >
-              {isAvailable ? "🎲" : "✓"}
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ 
-        color: "#FFE66D", 
-        marginBottom: "25px", 
-        fontSize: "18px",
-        fontWeight: "bold",
-      }}>
-        Remaining: {availableDice.length}/5 dice
-      </div>
-
-      <button
-        onClick={onRoll}
-        disabled={disabled || availableDice.length === 0}
-        style={{
-          padding: "20px 50px",
-          fontSize: "24px",
-          backgroundColor: disabled || availableDice.length === 0 ? "#666" : "#FF9800",
-          color: "white",
-          border: "4px solid #333",
-          borderRadius: "15px",
-          cursor: disabled || availableDice.length === 0 ? "not-allowed" : "pointer",
-          fontWeight: "bold",
-          transition: "all 0.3s ease",
-          boxShadow: disabled || availableDice.length === 0 ? "none" : "0 6px 12px rgba(0,0,0,0.3)",
-          transform: disabled || availableDice.length === 0 ? "scale(1)" : "scale(1.05)",
-        }}
-        onMouseEnter={(e) => {
-          if (!disabled && availableDice.length > 0) {
-            e.currentTarget.style.transform = "scale(1.1)";
-            e.currentTarget.style.boxShadow = "0 8px 16px rgba(255, 152, 0, 0.6)";
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!disabled && availableDice.length > 0) {
-            e.currentTarget.style.transform = "scale(1.05)";
-            e.currentTarget.style.boxShadow = "0 6px 12px rgba(0,0,0,0.3)";
-          }
-        }}
-      >
-        🎲 ROLL DICE 🎲
-      </button>
-
-      {availableDice.length > 0 && (
-        <div style={{ 
-          marginTop: "20px", 
-          color: "#FFE66D",
-          fontSize: "16px",
-        }}>
-          {currentPlayerName}'s turn
-        </div>
-      )}
-    </div>
-  );
-};
 
 // Enhanced Leaderboard (Right Side)
 const EnhancedLeaderboard: React.FC<{ 
@@ -852,6 +734,7 @@ const CamelRaceGame: React.FC = () => {
   const [setupMode, setSetupMode] = useState<"menu" | "room" | "game">("menu");
   const [playerName, setPlayerName] = useState("");
   const [numBots, setNumBots] = useState(2);
+  const [roomCodeInput, setRoomCodeInput] = useState("");
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [message, setMessage] = useState<string>("");
   const [actionDialog, setActionDialog] = useState<ActionDialogData | null>(null);
@@ -894,11 +777,18 @@ const CamelRaceGame: React.FC = () => {
     if (mode === "host") {
       newGameState.roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       newGameState.isHost = true;
+    } else if (mode === "join") {
+      if (!roomCodeInput.trim()) {
+        setMessage("Please enter a room code!");
+        return;
+      }
+      newGameState.roomCode = roomCodeInput.trim().toUpperCase();
+      newGameState.isHost = false;
     }
 
     setGameState(newGameState);
     setSetupMode("game");
-    setMessage("Game started! Place your bets or roll the dice.");
+    setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Game started!` : "Game started! Place your bets or roll the dice.");
   };
 
   // Handle bot turn
@@ -1323,6 +1213,7 @@ const CamelRaceGame: React.FC = () => {
               borderRadius: "12px",
               cursor: "pointer",
               fontWeight: "bold",
+              marginBottom: "15px",
               transition: "transform 0.2s",
             }}
             onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"}
@@ -1332,14 +1223,72 @@ const CamelRaceGame: React.FC = () => {
           </button>
 
           <div style={{
-            marginTop: "30px",
+            marginBottom: "15px",
+          }}>
+            <label style={{ 
+              display: "block", 
+              marginBottom: "10px",
+              fontSize: "18px",
+              color: "#8B4513",
+              fontWeight: "bold",
+            }}>
+              Or Join Existing Room:
+            </label>
+            <input
+              type="text"
+              placeholder="Enter Room Code"
+              value={roomCodeInput}
+              onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
+              style={{
+                width: "100%",
+                padding: "15px",
+                fontSize: "18px",
+                border: "3px solid #8B4513",
+                borderRadius: "10px",
+                marginBottom: "10px",
+                boxSizing: "border-box",
+                textTransform: "uppercase",
+              }}
+            />
+            <button
+              onClick={() => startGame("join")}
+              disabled={!roomCodeInput.trim()}
+              style={{
+                width: "100%",
+                padding: "20px",
+                fontSize: "22px",
+                backgroundColor: roomCodeInput.trim() ? "#FF9800" : "#ccc",
+                color: "white",
+                border: "4px solid #333",
+                borderRadius: "12px",
+                cursor: roomCodeInput.trim() ? "pointer" : "not-allowed",
+                fontWeight: "bold",
+                transition: "transform 0.2s",
+                opacity: roomCodeInput.trim() ? 1 : 0.6,
+              }}
+              onMouseEnter={(e) => {
+                if (roomCodeInput.trim()) {
+                  e.currentTarget.style.transform = "scale(1.05)";
+                }
+              }}
+              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+            >
+              🚪 Join Room
+            </button>
+          </div>
+
+          <div style={{
+            marginTop: "20px",
             padding: "20px",
             backgroundColor: "#F0F0F0",
             borderRadius: "10px",
             textAlign: "center",
           }}>
-            <p style={{ fontSize: "14px", color: "#666" }}>
-              💡 WebRTC multiplayer coming soon! For now, enjoy the game with bots.
+            <p style={{ fontSize: "14px", color: "#666", marginBottom: "5px" }}>
+              💡 Share the room code with friends!
+            </p>
+            <p style={{ fontSize: "12px", color: "#999" }}>
+              Note: WebRTC synchronization coming soon. For now, rooms are local.
             </p>
           </div>
         </div>
@@ -1582,19 +1531,126 @@ const CamelRaceGame: React.FC = () => {
           flexDirection: "column",
           alignItems: "center",
         }}>
-          <Track 
-            camels={gameState.camels}
-            spectatorTiles={gameState.spectatorTiles}
-            onTileClick={placingTile ? handleTileClick : undefined}
-            clickablePositions={!!placingTile}
-          />
+          <div style={{
+            position: "relative",
+            width: "900px",
+          }}>
+            <Track 
+              camels={gameState.camels}
+              spectatorTiles={gameState.spectatorTiles}
+              onTileClick={placingTile ? handleTileClick : undefined}
+              clickablePositions={!!placingTile}
+            />
+            
+            {/* Dice Roller positioned in center of board */}
+            <div style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 20,
+            }}>
+              <div style={{
+                padding: "30px",
+                backgroundColor: "rgba(139, 69, 19, 0.95)",
+                borderRadius: "20px",
+                border: "5px solid #654321",
+                boxShadow: "0 15px 30px rgba(0,0,0,0.7)",
+                textAlign: "center",
+              }}>
+                <h2 style={{ 
+                  color: "#FFE66D", 
+                  marginBottom: "15px",
+                  fontSize: "28px",
+                  textShadow: "2px 2px 4px rgba(0,0,0,0.5)",
+                }}>
+                  🎲 Dice Pyramid 🎲
+                </h2>
+                
+                <div style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  gap: "10px",
+                  marginBottom: "20px",
+                }}>
+                  {["red", "blue", "green", "yellow", "purple"].map(color => {
+                    const isAvailable = gameState.availableDice.includes(color as DiceColor);
+                    return (
+                      <div
+                        key={color}
+                        style={{
+                          width: "50px",
+                          height: "50px",
+                          backgroundColor: isAvailable ? color : "#333",
+                          border: `3px solid ${isAvailable ? "#FFF" : "#666"}`,
+                          borderRadius: "10px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: "24px",
+                          opacity: isAvailable ? 1 : 0.3,
+                          transition: "all 0.3s ease",
+                          boxShadow: isAvailable ? "0 3px 6px rgba(255,255,255,0.3)" : "inset 0 3px 6px rgba(0,0,0,0.5)",
+                        }}
+                      >
+                        {isAvailable ? "🎲" : "✓"}
+                      </div>
+                    );
+                  })}
+                </div>
 
-          <CenteredDiceRoller
-            availableDice={gameState.availableDice}
-            onRoll={() => handleAction("pyramid_ticket")}
-            disabled={!isLocalPlayerTurn}
-            currentPlayerName={currentPlayer.name}
-          />
+                <div style={{ 
+                  color: "#FFE66D", 
+                  marginBottom: "20px", 
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                }}>
+                  {gameState.availableDice.length}/5 dice remaining
+                </div>
+
+                <button
+                  onClick={() => handleAction("pyramid_ticket")}
+                  disabled={!isLocalPlayerTurn || gameState.availableDice.length === 0}
+                  style={{
+                    padding: "18px 45px",
+                    fontSize: "22px",
+                    backgroundColor: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "#666" : "#FF9800",
+                    color: "white",
+                    border: "4px solid #333",
+                    borderRadius: "15px",
+                    cursor: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "not-allowed" : "pointer",
+                    fontWeight: "bold",
+                    transition: "all 0.3s ease",
+                    boxShadow: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "none" : "0 6px 12px rgba(255, 152, 0, 0.6)",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isLocalPlayerTurn && gameState.availableDice.length > 0) {
+                      e.currentTarget.style.transform = "scale(1.05)";
+                      e.currentTarget.style.boxShadow = "0 8px 16px rgba(255, 152, 0, 0.8)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isLocalPlayerTurn && gameState.availableDice.length > 0) {
+                      e.currentTarget.style.transform = "scale(1)";
+                      e.currentTarget.style.boxShadow = "0 6px 12px rgba(255, 152, 0, 0.6)";
+                    }
+                  }}
+                >
+                  🎲 ROLL DICE 🎲
+                </button>
+
+                {gameState.availableDice.length > 0 && (
+                  <div style={{ 
+                    marginTop: "15px", 
+                    color: "#FFE66D",
+                    fontSize: "14px",
+                  }}>
+                    {currentPlayer.name}'s turn
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Leaderboard on the Right */}
