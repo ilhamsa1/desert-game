@@ -796,7 +796,8 @@ const CamelRaceGame: React.FC = () => {
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
     
-    if (currentPlayer.isBot) {
+    // Don't trigger bot actions if we're waiting for manual next turn advancement
+    if (currentPlayer.isBot && !waitingForNextTurn) {
       if (botTimerRef.current) clearTimeout(botTimerRef.current);
       
       // Bot makes a decision
@@ -832,7 +833,7 @@ const CamelRaceGame: React.FC = () => {
     return () => {
       if (botTimerRef.current) clearTimeout(botTimerRef.current);
     };
-  }, [gameState?.currentPlayer, gameState?.availableDice.length]);
+  }, [gameState?.currentPlayer, gameState?.availableDice.length, waitingForNextTurn]);
 
   const nextPlayer = () => {
     if (!gameState) return;
