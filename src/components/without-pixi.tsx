@@ -11,6 +11,12 @@ type Camel = {
   stackOrder: number;
 };
 
+type SpectatorTile = {
+  position: number;
+  type: "cheering" | "booing";
+  owner: string;
+};
+
 type Player = {
   id: string;
   name: string;
@@ -20,6 +26,7 @@ type Player = {
   isLocal: boolean;
   bettingTickets: { camelColor: CamelColor; value: number }[];
   pyramidTickets: number;
+  spectatorTilePlaced: boolean;
 };
 
 type GameState = {
@@ -28,6 +35,7 @@ type GameState = {
   currentPlayer: number;
   availableDice: DiceColor[];
   legBettingStacks: { [key in CamelColor]?: number[] };
+  spectatorTiles: SpectatorTile[];
   leg: number;
   gameEnded: boolean;
   winner: CamelColor | null;
@@ -62,7 +70,8 @@ const initializeGame = (players: Player[]): GameState => {
 
   const legBettingStacks: { [key in CamelColor]?: number[] } = {};
   RACING_CAMELS.forEach(color => {
-    legBettingStacks[color] = [5, 3, 2];
+    // 20 tickets total: 5+5+3+3+2+2 = 20
+    legBettingStacks[color] = [5, 5, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
   });
 
   return {
@@ -71,6 +80,7 @@ const initializeGame = (players: Player[]): GameState => {
     currentPlayer: 0,
     availableDice: ["red", "blue", "green", "yellow", "purple"],
     legBettingStacks,
+    spectatorTiles: [],
     leg: 1,
     gameEnded: false,
     winner: null,
@@ -88,7 +98,7 @@ const getLeaderboard = (camels: Camel[]): Camel[] => {
 };
 
 // Move camel
-const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number): Camel[] => {
+const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number, spectatorTiles: SpectatorTile[]): Camel[] => {
   const selectedCamel = camels.find(c => c.color === camelColor);
   if (!selectedCamel) return camels;
 
@@ -96,6 +106,13 @@ const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number): Came
   const movingCamels = camelsOnSamePosition.filter(c => c.stackOrder >= selectedCamel.stackOrder);
 
   let newPosition = selectedCamel.position + steps;
+  
+  // Check for spectator tile at the landing position
+  const spectatorTile = spectatorTiles.find(tile => tile.position === newPosition);
+  if (spectatorTile) {
+    newPosition += spectatorTile.type === "cheering" ? 1 : -1;
+  }
+  
   newPosition = Math.max(0, Math.min(newPosition, TRACK_LENGTH + 2));
 
   const camelsAtDestination = camels.filter(
@@ -163,8 +180,8 @@ const scoreLegBets = (players: Player[], leaderboard: Camel[]): Player[] => {
   });
 };
 
-// Bot AI - Make decision
-const makeBotDecision = (gameState: GameState): { action: string; data?: any } => {
+  // Bot AI - Make decision
+const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action: string; data?: any } => {
   const availableActions: Array<{ action: string; data?: any; weight: number }> = [];
 
   // Consider betting tickets
@@ -176,6 +193,11 @@ const makeBotDecision = (gameState: GameState): { action: string; data?: any } =
       availableActions.push({ action: "betting_ticket", data: color, weight: value * 2 });
     }
   });
+
+  // Consider placing spectator tile (if not placed)
+  if (!currentPlayer.spectatorTilePlaced) {
+    availableActions.push({ action: "spectator_tile", data: Math.random() > 0.5 ? "cheering" : "booing", weight: 5 });
+  }
 
   // Consider rolling dice (always attractive)
   if (gameState.availableDice.length > 0) {
@@ -288,7 +310,12 @@ const ActionDialog: React.FC<{
 };
 
 // Track Component
-const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
+const Track: React.FC<{ 
+  camels: Camel[];
+  spectatorTiles: SpectatorTile[];
+  onTileClick?: (position: number) => void;
+  clickablePositions?: boolean;
+}> = ({ camels, spectatorTiles, onTileClick, clickablePositions }) => {
   const trackWidth = 900;
   const trackHeight = 450;
   const totalPositions = TRACK_LENGTH;
@@ -331,9 +358,14 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
     }}>
       {Array.from({ length: totalPositions }).map((_, index) => {
         const { x, y } = getCamelPosition(index);
+        const spectatorTile = spectatorTiles.find(tile => tile.position === index);
+        const hasCamel = camels.some(c => c.position === index);
+        const isClickable = clickablePositions && !hasCamel && !spectatorTile && index !== 0;
+        
         return (
           <div
             key={index}
+            onClick={() => isClickable && onTileClick?.(index)}
             style={{
               position: "absolute",
               left: `${x + 15}px`,
@@ -349,9 +381,35 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
               fontSize: "12px",
               fontWeight: "bold",
               color: "#333",
+              cursor: isClickable ? "pointer" : "default",
+              transition: "transform 0.2s, box-shadow 0.2s",
+              boxShadow: isClickable ? "0 2px 4px rgba(0,0,0,0.2)" : "none",
+            }}
+            onMouseEnter={(e) => {
+              if (isClickable) {
+                e.currentTarget.style.transform = "scale(1.1)";
+                e.currentTarget.style.boxShadow = "0 4px 8px rgba(0,0,0,0.3)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (isClickable) {
+                e.currentTarget.style.transform = "scale(1)";
+                e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+              }
             }}
           >
             {index === 0 ? "START" : index + 1}
+            {spectatorTile && (
+              <div style={{
+                position: "absolute",
+                bottom: "0px",
+                fontSize: "32px",
+                zIndex: 5,
+                filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.3))",
+              }}>
+                {spectatorTile.type === "cheering" ? "👍" : "👎"}
+              </div>
+            )}
           </div>
         );
       })}
@@ -705,6 +763,7 @@ const CamelRaceGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [message, setMessage] = useState<string>("");
   const [actionDialog, setActionDialog] = useState<ActionDialogData | null>(null);
+  const [placingTile, setPlacingTile] = useState<"cheering" | "booing" | null>(null);
   const botTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Start game
@@ -720,6 +779,7 @@ const CamelRaceGame: React.FC = () => {
         isLocal: true,
         bettingTickets: [],
         pyramidTickets: 0,
+        spectatorTilePlaced: false,
       }
     ];
 
@@ -734,6 +794,7 @@ const CamelRaceGame: React.FC = () => {
         isLocal: false,
         bettingTickets: [],
         pyramidTickets: 0,
+        spectatorTilePlaced: false,
       });
     }
 
@@ -758,7 +819,7 @@ const CamelRaceGame: React.FC = () => {
       if (botTimerRef.current) clearTimeout(botTimerRef.current);
       
       botTimerRef.current = setTimeout(() => {
-        const decision = makeBotDecision(gameState);
+        const decision = makeBotDecision(gameState, currentPlayer);
         handleAction(decision.action, decision.data, true);
       }, 1500);
     }
@@ -784,15 +845,16 @@ const CamelRaceGame: React.FC = () => {
 
     const legBettingStacks: { [key in CamelColor]?: number[] } = {};
     RACING_CAMELS.forEach(color => {
-      legBettingStacks[color] = [5, 3, 2];
+      legBettingStacks[color] = [5, 5, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
     });
 
     setGameState({
       ...gameState,
-      players: updatedPlayers,
+      players: updatedPlayers.map(p => ({ ...p, spectatorTilePlaced: false })),
       leg: gameState.leg + 1,
       availableDice: ["red", "blue", "green", "yellow", "purple"],
       legBettingStacks,
+      spectatorTiles: [],
     });
 
     setMessage(`Leg ${gameState.leg} ended! Starting Leg ${gameState.leg + 1}`);
@@ -844,6 +906,13 @@ const CamelRaceGame: React.FC = () => {
         break;
       }
 
+      case "spectator_tile": {
+        if (currentPlayer.spectatorTilePlaced) return;
+        setPlacingTile(data as "cheering" | "booing");
+        setMessage(`${currentPlayer.name}, click on a track position to place your ${data} tile...`);
+        break;
+      }
+
       case "pyramid_ticket": {
         if (gameState.availableDice.length === 0) return;
 
@@ -851,7 +920,7 @@ const CamelRaceGame: React.FC = () => {
         const diceColor = gameState.availableDice[randomIndex];
         const steps = Math.floor(Math.random() * 3) + 1;
 
-        const updatedCamels = moveCamel(gameState.camels, diceColor as CamelColor, steps);
+        const updatedCamels = moveCamel(gameState.camels, diceColor as CamelColor, steps, gameState.spectatorTiles);
         const newAvailableDice = gameState.availableDice.filter((_, i) => i !== randomIndex);
 
         const { ended, winner } = checkGameEnd(updatedCamels);
@@ -899,6 +968,49 @@ const CamelRaceGame: React.FC = () => {
         break;
       }
     }
+  };
+
+  const handleTileClick = (position: number) => {
+    if (!placingTile || !gameState) return;
+
+    const currentPlayer = gameState.players[gameState.currentPlayer];
+
+    // Check validity
+    if (position === 0) {
+      setMessage("Cannot place tile on starting position!");
+      return;
+    }
+
+    const hasCamel = gameState.camels.some(c => c.position === position);
+    const hasTile = gameState.spectatorTiles.some(t => t.position === position);
+
+    if (hasCamel || hasTile) {
+      setMessage("Cannot place tile here! (position must be empty)");
+      return;
+    }
+
+    // Remove player's previous tile if exists
+    const newTiles = gameState.spectatorTiles.filter(t => t.owner !== currentPlayer.name);
+    
+    newTiles.push({
+      position,
+      type: placingTile,
+      owner: currentPlayer.name,
+    });
+
+    setGameState({
+      ...gameState,
+      spectatorTiles: newTiles,
+      players: gameState.players.map(p =>
+        p.id === currentPlayer.id
+          ? { ...p, spectatorTilePlaced: true }
+          : p
+      ),
+    });
+
+    setMessage(`${currentPlayer.name} placed a ${placingTile} tile at position ${position + 1}!`);
+    setPlacingTile(null);
+    nextPlayer();
   };
 
   // Menu screen
@@ -1257,7 +1369,12 @@ const CamelRaceGame: React.FC = () => {
         </div>
       )}
 
-      <Track camels={gameState.camels} />
+      <Track 
+        camels={gameState.camels}
+        spectatorTiles={gameState.spectatorTiles}
+        onTileClick={placingTile ? handleTileClick : undefined}
+        clickablePositions={!!placingTile}
+      />
 
       <CenteredDiceRoller
         availableDice={gameState.availableDice}
@@ -1270,6 +1387,101 @@ const CamelRaceGame: React.FC = () => {
         players={gameState.players}
         camels={gameState.camels}
       />
+
+      {/* Spectator Tile Placement */}
+      <div style={{
+        margin: "20px auto",
+        padding: "25px",
+        backgroundColor: "#FFF",
+        borderRadius: "15px",
+        border: "3px solid #8B4513",
+        maxWidth: "900px",
+      }}>
+        <h3 style={{ 
+          textAlign: "center", 
+          color: "#8B4513",
+          marginBottom: "20px",
+          fontSize: "24px",
+        }}>
+          Place Spectator Tile {currentPlayer.spectatorTilePlaced && "(Already Placed)"}
+        </h3>
+        <div style={{ 
+          display: "flex", 
+          gap: "20px", 
+          justifyContent: "center",
+          flexWrap: "wrap",
+        }}>
+          <button
+            onClick={() => handleAction("spectator_tile", "cheering")}
+            disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
+            style={{
+              padding: "20px 40px",
+              fontSize: "20px",
+              backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#4CAF50",
+              color: "white",
+              border: "4px solid #333",
+              borderRadius: "12px",
+              cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
+              fontWeight: "bold",
+              opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
+              transition: "transform 0.2s",
+              minWidth: "200px",
+            }}
+            onMouseEnter={(e) => {
+              if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
+                e.currentTarget.style.transform = "scale(1.1)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
+          >
+            👍 Cheering Tile<br/>
+            <span style={{ fontSize: "14px" }}>(Camel moves +1 extra)</span>
+          </button>
+          <button
+            onClick={() => handleAction("spectator_tile", "booing")}
+            disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
+            style={{
+              padding: "20px 40px",
+              fontSize: "20px",
+              backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#F44336",
+              color: "white",
+              border: "4px solid #333",
+              borderRadius: "12px",
+              cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
+              fontWeight: "bold",
+              opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
+              transition: "transform 0.2s",
+              minWidth: "200px",
+            }}
+            onMouseEnter={(e) => {
+              if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
+                e.currentTarget.style.transform = "scale(1.1)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
+          >
+            👎 Booing Tile<br/>
+            <span style={{ fontSize: "14px" }}>(Camel moves -1 space)</span>
+          </button>
+        </div>
+        {placingTile && (
+          <div style={{
+            marginTop: "20px",
+            padding: "15px",
+            backgroundColor: "#FFE66D",
+            borderRadius: "10px",
+            textAlign: "center",
+            fontSize: "18px",
+            fontWeight: "bold",
+          }}>
+            ⚡ Click on any empty track position to place your {placingTile} tile!
+          </div>
+        )}
+      </div>
 
       <BettingPanel
         gameState={gameState}
