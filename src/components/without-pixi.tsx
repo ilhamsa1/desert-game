@@ -57,15 +57,10 @@ const RACING_CAMELS: CamelColor[] = ["red", "blue", "green", "yellow", "purple"]
 // Initialize game
 const initializeGame = (players: Player[]): GameState => {
   const camels: Camel[] = [];
-  const positionCounts: { [key: number]: number } = {};
   
-  RACING_CAMELS.forEach(color => {
-    const roll = Math.floor(Math.random() * 3) + 1;
-    const position = roll - 1;
-    const stackOrder = positionCounts[position] || 0;
-    positionCounts[position] = stackOrder + 1;
-    
-    camels.push({ color, position, stackOrder });
+  // All camels start at position 0 with different stack orders
+  RACING_CAMELS.forEach((color, index) => {
+    camels.push({ color, position: 0, stackOrder: index });
   });
 
   const legBettingStacks: { [key in CamelColor]?: number[] } = {};
