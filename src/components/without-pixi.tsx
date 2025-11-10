@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
+import Peer, { DataConnection } from "peerjs";
 
 // Full Camel Up Game Implementation with WebRTC and Bot Support
 
-type CamelColor = "red" | "blue" | "green" | "yellow" | "purple";
-type DiceColor = "red" | "blue" | "green" | "yellow" | "purple";
+type CamelColor = "red" | "blue" | "green" | "yellow" | "purple" | "black" | "white";
+type DiceColor = "red" | "blue" | "green" | "yellow" | "purple" | "black" | "white";
+type CrazyCamelColor = "black" | "white";
 
 type Camel = {
   color: CamelColor;
   position: number;
   stackOrder: number;
+  isCrazy?: boolean; // Crazy camels move backward
 };
 
 type SpectatorTile = {
@@ -51,16 +54,32 @@ type ActionDialogData = {
   value?: number;
 };
 
+// WebRTC Message Types
+type PlayerJoinMessage = { type: 'PLAYER_JOIN'; player: Player };
+type LobbyUpdateMessage = { type: 'LOBBY_UPDATE'; players: Player[] };
+type GameStartMessage = { type: 'GAME_START'; gameState: GameState };
+type GameStateUpdateMessage = { type: 'GAME_STATE_UPDATE'; gameState: GameState; message?: string };
+type PlayerActionMessage = { type: 'PLAYER_ACTION'; action: string; data?: CamelColor | "cheering" | "booing" };
+type BotAddMessage = { type: 'BOT_ADD'; bot: Player };
+type BotRemoveMessage = { type: 'BOT_REMOVE'; botId: string };
+type WebRTCMessage = PlayerJoinMessage | LobbyUpdateMessage | GameStartMessage | GameStateUpdateMessage | PlayerActionMessage | BotAddMessage | BotRemoveMessage;
+
 const TRACK_LENGTH = 16;
 const RACING_CAMELS: CamelColor[] = ["red", "blue", "green", "yellow", "purple"];
+const CRAZY_CAMELS: CrazyCamelColor[] = ["black", "white"];
 
 // Initialize game
 const initializeGame = (players: Player[]): GameState => {
   const camels: Camel[] = [];
   
-  // All camels start at position 0 with different stack orders
+  // Normal racing camels start at position 0
   RACING_CAMELS.forEach((color, index) => {
-    camels.push({ color, position: 0, stackOrder: index });
+    camels.push({ color, position: 0, stackOrder: index, isCrazy: false });
+  });
+  
+  // Crazy camels (black & white) also start at position 0 but move backward
+  CRAZY_CAMELS.forEach((color, index) => {
+    camels.push({ color, position: 0, stackOrder: RACING_CAMELS.length + index, isCrazy: true });
   });
 
   const legBettingStacks: { [key in CamelColor]?: number[] } = {};
@@ -73,7 +92,7 @@ const initializeGame = (players: Player[]): GameState => {
     camels,
     players,
     currentPlayer: 0,
-    availableDice: ["red", "blue", "green", "yellow", "purple"],
+    availableDice: ["red", "blue", "green", "yellow", "purple", "black", "white"],
     legBettingStacks,
     spectatorTiles: [],
     leg: 1,
@@ -82,14 +101,16 @@ const initializeGame = (players: Player[]): GameState => {
   };
 };
 
-// Get leaderboard
+// Get leaderboard (only racing camels, not crazy camels)
 const getLeaderboard = (camels: Camel[]): Camel[] => {
-  return [...camels].sort((a, b) => {
-    if (a.position !== b.position) {
-      return b.position - a.position;
-    }
-    return b.stackOrder - a.stackOrder;
-  });
+  return [...camels]
+    .filter(c => !c.isCrazy) // Exclude crazy camels from leaderboard
+    .sort((a, b) => {
+      if (a.position !== b.position) {
+        return b.position - a.position;
+      }
+      return b.stackOrder - a.stackOrder;
+    });
 };
 
 // Move camel
@@ -100,7 +121,9 @@ const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number, spect
   const camelsOnSamePosition = camels.filter(c => c.position === selectedCamel.position);
   const movingCamels = camelsOnSamePosition.filter(c => c.stackOrder >= selectedCamel.stackOrder);
 
-  let newPosition = selectedCamel.position + steps;
+  // Crazy camels (black & white) move BACKWARD!
+  const actualSteps = selectedCamel.isCrazy ? -steps : steps;
+  let newPosition = selectedCamel.position + actualSteps;
   
   // Check for spectator tile at the landing position
   const spectatorTile = spectatorTiles.find(tile => tile.position === newPosition);
@@ -134,9 +157,10 @@ const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number, spect
   });
 };
 
-// Check if game ended
+// Check if game ended (only racing camels can win)
 const checkGameEnd = (camels: Camel[]): { ended: boolean; winner: CamelColor | null } => {
-  const winnersOverLine = camels.filter(c => c.position >= TRACK_LENGTH);
+  const racingCamels = camels.filter(c => !c.isCrazy);
+  const winnersOverLine = racingCamels.filter(c => c.position >= TRACK_LENGTH);
   
   if (winnersOverLine.length > 0) {
     const leaderboard = getLeaderboard(camels);
@@ -176,8 +200,8 @@ const scoreLegBets = (players: Player[], leaderboard: Camel[]): Player[] => {
 };
 
   // Bot AI - Make decision
-const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action: string; data?: any } => {
-  const availableActions: Array<{ action: string; data?: any; weight: number }> = [];
+const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action: string; data?: CamelColor | "cheering" | "booing" } => {
+  const availableActions: Array<{ action: string; data?: CamelColor | "cheering" | "booing"; weight: number }> = [];
 
   // Consider betting tickets (only on available stacks)
   RACING_CAMELS.forEach(color => {
@@ -333,10 +357,11 @@ const Track: React.FC<{
   onTileClick?: (position: number) => void;
   clickablePositions?: boolean;
 }> = ({ camels, spectatorTiles, onTileClick, clickablePositions }) => {
-  const trackWidth = 800;
-  const trackHeight = 400;
+  const trackWidth = 1000;
+  const trackHeight = 500;
   const totalPositions = TRACK_LENGTH;
   const positionPerSide = totalPositions / 4;
+  const tileSize = 70; // Larger tiles like the board game
 
   const getCamelPosition = (position: number) => {
     let displayPosition = position;
@@ -344,31 +369,37 @@ const Track: React.FC<{
     if (displayPosition >= totalPositions) displayPosition = totalPositions - 1;
 
     let x = 0, y = 0;
+    const tileSpacing = (trackWidth - tileSize) / (positionPerSide - 1);
+    const verticalSpacing = (trackHeight - tileSize) / (positionPerSide - 1);
 
     if (displayPosition < positionPerSide) {
-      x = (trackWidth / positionPerSide) * displayPosition;
-      y = 0;
+      // Bottom row (left to right)
+      x = displayPosition * tileSpacing;
+      y = trackHeight - tileSize;
     } else if (displayPosition < positionPerSide * 2) {
-      x = trackWidth;
-      y = (trackHeight / positionPerSide) * (displayPosition - positionPerSide);
+      // Right column (bottom to top)
+      x = trackWidth - tileSize;
+      y = trackHeight - tileSize - ((displayPosition - positionPerSide) * verticalSpacing);
     } else if (displayPosition < positionPerSide * 3) {
-      x = trackWidth - (trackWidth / positionPerSide) * (displayPosition - positionPerSide * 2);
-      y = trackHeight;
+      // Top row (right to left)
+      x = trackWidth - tileSize - ((displayPosition - positionPerSide * 2) * tileSpacing);
+      y = 0;
     } else {
+      // Left column (top to bottom)
       x = 0;
-      y = trackHeight - (trackHeight / positionPerSide) * (displayPosition - positionPerSide * 3);
+      y = (displayPosition - positionPerSide * 3) * verticalSpacing;
     }
 
-    return { x: x - 25, y: y - 25 };
+    return { x, y };
   };
 
-  // Get tile color pattern - alternating desert colors
+  // Get tile color pattern - alternating desert colors like board game
   const getTileStyle = (index: number) => {
     const colors = [
-      "linear-gradient(135deg, #FFE4B5 0%, #F4D03F 100%)", // Golden
-      "linear-gradient(135deg, #F5DEB3 0%, #DEB887 100%)", // Wheat
-      "linear-gradient(135deg, #FFDAB9 0%, #FFB347 100%)", // Peach
-      "linear-gradient(135deg, #FFE5CC 0%, #FFA07A 100%)", // Light Salmon
+      "linear-gradient(145deg, #F5DEB3 0%, #DEB887 50%, #D2B48C 100%)", // Tan
+      "linear-gradient(145deg, #FFDEAD 0%, #FFE4B5 50%, #FFE5B4 100%)", // Navajo White
+      "linear-gradient(145deg, #FFE4C4 0%, #FFDAB9 50%, #FFCBA4 100%)", // Bisque
+      "linear-gradient(145deg, #F4A460 0%, #DAA520 50%, #CD853F 100%)", // Sandy Brown
     ];
     
     return colors[index % 4];
@@ -379,45 +410,25 @@ const Track: React.FC<{
       position: "relative",
       width: `${trackWidth}px`,
       height: `${trackHeight}px`,
-      border: "5px solid #8B4513",
-      background: "linear-gradient(135deg, #F4A460 0%, #DEB887 50%, #D2691E 100%)",
-      borderRadius: "20px",
-      boxShadow: "0 12px 24px rgba(0,0,0,0.4), inset 0 0 50px rgba(139,69,19,0.3)",
-      padding: "10px",
+      border: "8px solid #8B4513",
+      background: "linear-gradient(135deg, #E8D4A0 0%, #C9A961 50%, #B8965F 100%)",
+      borderRadius: "15px",
+      boxShadow: "0 15px 35px rgba(0,0,0,0.5), inset 0 0 60px rgba(139,69,19,0.2)",
+      padding: "0",
     }}>
-      {/* Decorative Egyptian/Desert patterns in corners */}
+      {/* Center Pyramid Decoration */}
       <div style={{
         position: "absolute",
-        top: "-5px",
-        left: "-5px",
-        fontSize: "40px",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        fontSize: "120px",
+        opacity: 0.15,
         zIndex: 1,
-        opacity: 0.3,
-      }}>🏜️</div>
-      <div style={{
-        position: "absolute",
-        top: "-5px",
-        right: "-5px",
-        fontSize: "40px",
-        zIndex: 1,
-        opacity: 0.3,
-      }}>🏜️</div>
-      <div style={{
-        position: "absolute",
-        bottom: "-5px",
-        left: "-5px",
-        fontSize: "40px",
-        zIndex: 1,
-        opacity: 0.3,
-      }}>🏜️</div>
-      <div style={{
-        position: "absolute",
-        bottom: "-5px",
-        right: "-5px",
-        fontSize: "40px",
-        zIndex: 1,
-        opacity: 0.3,
-      }}>🏜️</div>
+        filter: "drop-shadow(0 0 20px rgba(139,69,19,0.5))",
+      }}>
+        🔺
+      </div>
       
       {Array.from({ length: totalPositions }).map((_, index) => {
         const { x, y } = getCamelPosition(index);
@@ -431,40 +442,41 @@ const Track: React.FC<{
             onClick={() => isClickable && onTileClick?.(index)}
             style={{
               position: "absolute",
-              left: `${x + 15}px`,
-              top: `${y + 15}px`,
-              width: "50px",
-              height: "50px",
+              left: `${x}px`,
+              top: `${y}px`,
+              width: `${tileSize}px`,
+              height: `${tileSize}px`,
               background: index === 0 
-                ? "linear-gradient(135deg, #4CAF50 0%, #45a049 100%)" 
+                ? "linear-gradient(145deg, #4CAF50 0%, #388E3C 50%, #2E7D32 100%)" 
                 : getTileStyle(index),
-              border: "3px solid #8B4513",
-              borderRadius: "10px",
+              border: "4px solid #8B4513",
+              borderRadius: "12px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "14px",
-              fontWeight: "bold",
-              color: "#8B4513",
+              fontSize: "18px",
+              fontWeight: "900",
+              color: "#5D4037",
               cursor: isClickable ? "pointer" : "default",
               transition: "transform 0.2s, box-shadow 0.2s",
               boxShadow: isClickable 
-                ? "0 3px 6px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.5)" 
-                : "0 2px 4px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.3)",
-              textShadow: "1px 1px 2px rgba(255,255,255,0.8)",
+                ? "0 6px 12px rgba(0,0,0,0.4), inset 0 2px 8px rgba(255,255,255,0.6), inset 0 -2px 8px rgba(0,0,0,0.2)" 
+                : "0 4px 8px rgba(0,0,0,0.3), inset 0 2px 6px rgba(255,255,255,0.5), inset 0 -2px 6px rgba(0,0,0,0.15)",
+              textShadow: "1px 1px 3px rgba(255,255,255,0.9), -1px -1px 2px rgba(0,0,0,0.3)",
               backgroundSize: "200% 200%",
               animation: isClickable ? "shimmer 3s ease infinite" : "none",
+              zIndex: 5,
             }}
             onMouseEnter={(e) => {
               if (isClickable) {
-                e.currentTarget.style.transform = "scale(1.15) rotate(2deg)";
-                e.currentTarget.style.boxShadow = "0 6px 12px rgba(255,215,0,0.6), inset 0 0 15px rgba(255,255,255,0.7)";
+                e.currentTarget.style.transform = "scale(1.1) rotate(1deg)";
+                e.currentTarget.style.boxShadow = "0 8px 16px rgba(255,215,0,0.7), inset 0 2px 10px rgba(255,255,255,0.8), inset 0 -2px 10px rgba(0,0,0,0.25)";
               }
             }}
             onMouseLeave={(e) => {
               if (isClickable) {
                 e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.boxShadow = "0 3px 6px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.5)";
+                e.currentTarget.style.boxShadow = "0 6px 12px rgba(0,0,0,0.4), inset 0 2px 8px rgba(255,255,255,0.6), inset 0 -2px 8px rgba(0,0,0,0.2)";
               }
             }}
           >
@@ -474,21 +486,26 @@ const Track: React.FC<{
                 flexDirection: "column", 
                 alignItems: "center",
                 color: "white",
-                textShadow: "1px 1px 3px rgba(0,0,0,0.7)",
+                textShadow: "2px 2px 4px rgba(0,0,0,0.8)",
               }}>
-                <span style={{ fontSize: "10px" }}>🏁</span>
-                <span style={{ fontSize: "9px" }}>START</span>
+                <span style={{ fontSize: "20px" }}>🏁</span>
+                <span style={{ fontSize: "11px", fontWeight: "bold" }}>START</span>
               </div>
             ) : (
-              <span>{index + 1}</span>
+              <span style={{ 
+                fontSize: "20px",
+                fontFamily: "Georgia, serif",
+              }}>
+                {index}
+              </span>
             )}
             {spectatorTile && (
               <div style={{
                 position: "absolute",
-                bottom: "-8px",
-                fontSize: "36px",
-                zIndex: 5,
-                filter: "drop-shadow(0 3px 3px rgba(0,0,0,0.5))",
+                bottom: "-12px",
+                fontSize: "42px",
+                zIndex: 15,
+                filter: "drop-shadow(0 4px 4px rgba(0,0,0,0.6))",
               }}>
                 {spectatorTile.type === "cheering" ? "👍" : "👎"}
               </div>
@@ -499,30 +516,49 @@ const Track: React.FC<{
       
       {camels.map((camel) => {
         const { x, y } = getCamelPosition(camel.position);
+        const textColor = (camel.color === 'yellow' || camel.color === 'white') ? 'black' : 'white';
+        const isCrazy = camel.isCrazy;
+        
         return (
           <div
             key={camel.color}
             style={{
               position: "absolute",
-              left: `${x + 15}px`,
-              top: `${y - 5 - (camel.stackOrder * 35)}px`,
-              width: "50px",
-              height: "40px",
+              left: `${x + (tileSize - 60) / 2}px`,
+              top: `${y - 10 - (camel.stackOrder * 45)}px`,
+              width: "60px",
+              height: "50px",
               backgroundColor: camel.color,
-              border: "3px solid #333",
-              borderRadius: "20px 20px 10px 10px",
+              border: isCrazy ? "4px solid #FFD700" : "4px solid #333",
+              borderRadius: "25px 25px 12px 12px",
               display: "flex",
+              flexDirection: "column",
               justifyContent: "center",
               alignItems: "center",
-              color: camel.color === 'yellow' ? 'black' : 'white',
+              color: textColor,
               fontWeight: "bold",
-              fontSize: "24px",
-              zIndex: 10 + camel.stackOrder,
+              fontSize: "28px",
+              zIndex: 20 + camel.stackOrder,
               transition: "all 0.8s ease-in-out",
-              boxShadow: "0 4px 8px rgba(0,0,0,0.4)",
+              boxShadow: isCrazy 
+                ? "0 6px 12px rgba(255,215,0,0.6), 0 0 15px rgba(255,215,0,0.4)"
+                : "0 6px 12px rgba(0,0,0,0.5)",
             }}
           >
-            🐪
+            <span style={{ marginBottom: "-5px" }}>🐪</span>
+            {isCrazy && (
+              <span style={{ 
+                fontSize: "10px", 
+                fontWeight: "900",
+                textTransform: "uppercase",
+                textShadow: camel.color === 'white' 
+                  ? "1px 1px 2px rgba(0,0,0,0.8)" 
+                  : "1px 1px 2px rgba(255,255,255,0.8)",
+                marginTop: "-3px",
+              }}>
+                {camel.color === 'black' ? '⬅' : '⬅'}
+              </span>
+            )}
           </div>
         );
       })}
@@ -740,6 +776,186 @@ const CamelRaceGame: React.FC = () => {
   const [roomCode, setRoomCode] = useState<string>("");
   const [isHost, setIsHost] = useState<boolean>(false);
 
+  // WebRTC/PeerJS state
+  const [connections, setConnections] = useState<DataConnection[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<string>("");
+  const peerRef = useRef<Peer | null>(null);
+  const connectionsRef = useRef<DataConnection[]>([]);
+
+  // Broadcast data to all connected peers
+  const broadcastToPeers = (data: WebRTCMessage) => {
+    connectionsRef.current.forEach(conn => {
+      if (conn.open) {
+        conn.send(data);
+      }
+    });
+  };
+
+  // Setup peer connection handlers
+  const setupConnection = (conn: DataConnection) => {
+    conn.on('data', (data: unknown) => {
+      console.log('Received data from peer:', data);
+      
+      const message = data as WebRTCMessage;
+      
+      if (message.type === 'PLAYER_JOIN') {
+        // Add remote player to lobby
+        setLobbyPlayers(prev => {
+          const exists = prev.some(p => p.id === message.player.id);
+          if (exists) return prev;
+          return [...prev, message.player];
+        });
+        setMessage(`${message.player.name} joined the lobby!`);
+        
+        // If host, send current lobby state to new player
+        if (isHost) {
+          conn.send({
+            type: 'LOBBY_UPDATE',
+            players: lobbyPlayers,
+          } as LobbyUpdateMessage);
+        }
+      } else if (message.type === 'LOBBY_UPDATE') {
+        // Receive lobby update from host
+        setLobbyPlayers(message.players);
+      } else if (message.type === 'GAME_START') {
+        // Game is starting
+        setGameState(message.gameState);
+        setSetupMode('game');
+        setMessage('Game started by host!');
+      } else if (message.type === 'GAME_STATE_UPDATE') {
+        // Sync game state
+        setGameState(message.gameState);
+        if (message.message) {
+          setMessage(message.message);
+        }
+      } else if (message.type === 'PLAYER_ACTION') {
+        // Handle remote player action
+        handleAction(message.action, message.data, true);
+      } else if (message.type === 'BOT_ADD') {
+        // Host added a bot
+        setLobbyPlayers(prev => [...prev, message.bot]);
+      } else if (message.type === 'BOT_REMOVE') {
+        // Host removed a bot
+        setLobbyPlayers(prev => prev.filter(p => p.id !== message.botId));
+      }
+    });
+
+    conn.on('close', () => {
+      console.log('Connection closed');
+      setConnectionStatus('Peer disconnected');
+      setConnections(prev => prev.filter(c => c !== conn));
+      connectionsRef.current = connectionsRef.current.filter(c => c !== conn);
+    });
+
+    conn.on('error', (err) => {
+      console.error('Connection error:', err);
+      setConnectionStatus(`Connection error: ${err.message}`);
+    });
+  };
+
+  // Initialize PeerJS for host
+  const initializePeerAsHost = (code: string) => {
+    try {
+      const newPeer = new Peer(code, {
+        debug: 2,
+      });
+
+      newPeer.on('open', (id) => {
+        console.log('Host peer created with ID:', id);
+        setConnectionStatus(`Hosting with ID: ${id}`);
+        peerRef.current = newPeer;
+      });
+
+      newPeer.on('connection', (conn) => {
+        console.log('Incoming connection from:', conn.peer);
+        setConnectionStatus(`Player connecting...`);
+        
+        setupConnection(conn);
+        
+        conn.on('open', () => {
+          console.log('Connection opened');
+          setConnectionStatus(`Connected to ${conn.peer}`);
+          setConnections(prev => [...prev, conn]);
+          connectionsRef.current = [...connectionsRef.current, conn];
+        });
+      });
+
+      newPeer.on('error', (err) => {
+        console.error('Peer error:', err);
+        setConnectionStatus(`Peer error: ${err.message}`);
+        setMessage(`Connection error: ${err.message}`);
+      });
+    } catch (error) {
+      console.error('Failed to create peer:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setMessage(`Failed to create host: ${errorMessage}`);
+    }
+  };
+
+  // Initialize PeerJS for client
+  const initializePeerAsClient = (hostCode: string) => {
+    try {
+      const newPeer = new Peer({
+        debug: 2,
+      });
+
+      newPeer.on('open', (id) => {
+        console.log('Client peer created with ID:', id);
+        setConnectionStatus(`Connecting to host ${hostCode}...`);
+        peerRef.current = newPeer;
+
+        // Connect to host
+        const conn = newPeer.connect(hostCode, {
+          reliable: true,
+        });
+
+        setupConnection(conn);
+
+        conn.on('open', () => {
+          console.log('Connected to host');
+          setConnectionStatus(`Connected to host`);
+          setConnections([conn]);
+          connectionsRef.current = [conn];
+
+          // Send player info to host
+          const localPlayer = lobbyPlayers[0];
+          conn.send({
+            type: 'PLAYER_JOIN',
+            player: localPlayer,
+          });
+        });
+
+        conn.on('error', (err) => {
+          console.error('Connection failed:', err);
+          setConnectionStatus(`Failed to connect: ${err}`);
+          setMessage(`Failed to connect to host: ${err}`);
+        });
+      });
+
+      newPeer.on('error', (err) => {
+        console.error('Peer error:', err);
+        setConnectionStatus(`Peer error: ${err.message}`);
+        setMessage(`Connection error: ${err.message}`);
+      });
+    } catch (error) {
+      console.error('Failed to create peer:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setMessage(`Failed to connect: ${errorMessage}`);
+    }
+  };
+
+  // Cleanup peer connections
+  useEffect(() => {
+    return () => {
+      connectionsRef.current.forEach(conn => {
+        conn.close();
+      });
+      if (peerRef.current) {
+        peerRef.current.destroy();
+      }
+    };
+  }, []);
+
   // Create or join lobby
   const createLobby = () => {
     if (!playerName.trim()) {
@@ -747,7 +963,7 @@ const CamelRaceGame: React.FC = () => {
       return;
     }
     
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const code = `camelup-${Math.random().toString(36).substring(2, 8).toLowerCase()}`;
     const localPlayer: Player = {
       id: `player-${Date.now()}`,
       name: playerName,
@@ -765,6 +981,9 @@ const CamelRaceGame: React.FC = () => {
     setLobbyPlayers([localPlayer]);
     setSetupMode("lobby");
     setMessage(`Room created! Share code: ${code}`);
+    
+    // Initialize PeerJS as host
+    initializePeerAsHost(code);
   };
 
   const joinLobby = () => {
@@ -789,11 +1008,15 @@ const CamelRaceGame: React.FC = () => {
       spectatorTilePlaced: false,
     };
     
-    setRoomCode(roomCodeInput.trim().toUpperCase());
+    const code = roomCodeInput.trim().toLowerCase();
+    setRoomCode(code);
     setIsHost(false);
     setLobbyPlayers([localPlayer]);
     setSetupMode("lobby");
-    setMessage(`Joined room ${roomCodeInput.toUpperCase()}!`);
+    setMessage(`Connecting to room ${code}...`);
+    
+    // Initialize PeerJS as client and connect to host
+    initializePeerAsClient(code);
   };
 
   const addBotToLobby = () => {
@@ -813,10 +1036,26 @@ const CamelRaceGame: React.FC = () => {
     };
     
     setLobbyPlayers([...lobbyPlayers, newBot]);
+    
+    // Broadcast bot addition to all peers
+    if (isHost) {
+      broadcastToPeers({
+        type: 'BOT_ADD',
+        bot: newBot,
+      });
+    }
   };
 
   const removeBotFromLobby = (botId: string) => {
     setLobbyPlayers(lobbyPlayers.filter(p => p.id !== botId));
+    
+    // Broadcast bot removal to all peers
+    if (isHost) {
+      broadcastToPeers({
+        type: 'BOT_REMOVE',
+        botId,
+      });
+    }
   };
 
   const startGameFromLobby = () => {
@@ -832,6 +1071,14 @@ const CamelRaceGame: React.FC = () => {
     setGameState(newGameState);
     setSetupMode("game");
     setMessage("Game started! Place your bets or roll the dice.");
+    
+    // Broadcast game start to all peers
+    if (isHost) {
+      broadcastToPeers({
+        type: 'GAME_START',
+        gameState: newGameState,
+      });
+    }
   };
 
   // Start game (for solo mode only)
@@ -883,6 +1130,16 @@ const CamelRaceGame: React.FC = () => {
     setSetupMode("game");
     setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Game started!` : "Game started! Place your bets or roll the dice.");
   };
+
+  // Sync game state to peers whenever it changes
+  useEffect(() => {
+    if (gameState && isHost && connections.length > 0) {
+      broadcastToPeers({
+        type: 'GAME_STATE_UPDATE',
+        gameState: gameState,
+      });
+    }
+  }, [gameState, isHost, connections.length, broadcastToPeers]);
 
   // Handle bot turn
   useEffect(() => {
@@ -953,7 +1210,7 @@ const CamelRaceGame: React.FC = () => {
       ...gameState,
       players: updatedPlayers.map(p => ({ ...p, spectatorTilePlaced: false })),
       leg: gameState.leg + 1,
-      availableDice: ["red", "blue", "green", "yellow", "purple"],
+      availableDice: ["red", "blue", "green", "yellow", "purple", "black", "white"],
       legBettingStacks,
       spectatorTiles: [],
     });
@@ -961,10 +1218,19 @@ const CamelRaceGame: React.FC = () => {
     setMessage(`Leg ${gameState.leg} ended! Starting Leg ${gameState.leg + 1}`);
   };
 
-  const handleAction = (action: string, data?: any, skipDialog = false) => {
+  const handleAction = (action: string, data?: CamelColor | "cheering" | "booing", skipDialog = false) => {
     if (!gameState || gameState.gameEnded) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
+    
+    // If this is a local player action in multiplayer, broadcast it
+    if (currentPlayer.isLocal && !skipDialog && connections.length > 0) {
+      broadcastToPeers({
+        type: 'PLAYER_ACTION',
+        action,
+        data,
+      });
+    }
 
     switch (action) {
       case "betting_ticket": {
@@ -1345,9 +1611,9 @@ const CamelRaceGame: React.FC = () => {
             </label>
             <input
               type="text"
-              placeholder="Enter Room Code"
+              placeholder="Enter Room Code (e.g., camelup-abc123)"
               value={roomCodeInput}
-              onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
+              onChange={(e) => setRoomCodeInput(e.target.value.toLowerCase())}
               style={{
                 width: "100%",
                 padding: "15px",
@@ -1356,7 +1622,7 @@ const CamelRaceGame: React.FC = () => {
                 borderRadius: "10px",
                 marginBottom: "10px",
                 boxSizing: "border-box",
-                textTransform: "uppercase",
+                fontFamily: "monospace",
               }}
             />
             <button
@@ -1394,10 +1660,10 @@ const CamelRaceGame: React.FC = () => {
             textAlign: "center",
           }}>
             <p style={{ fontSize: "14px", color: "#666", marginBottom: "5px" }}>
-              💡 Share the room code with friends!
+              💡 Share the room code with friends to play together!
             </p>
             <p style={{ fontSize: "12px", color: "#999" }}>
-              Note: Multiplayer uses local lobby. Real-time sync coming soon!
+              Multiplayer uses WebRTC peer-to-peer connection
             </p>
           </div>
         </div>
@@ -1453,6 +1719,21 @@ const CamelRaceGame: React.FC = () => {
             fontWeight: "bold",
           }}>
             {message}
+          </div>
+        )}
+
+        {connectionStatus && (
+          <div style={{
+            padding: "15px 30px",
+            backgroundColor: connections.length > 0 ? "#4CAF50" : "#2196F3",
+            color: "white",
+            border: "3px solid #333",
+            borderRadius: "10px",
+            marginBottom: "20px",
+            fontSize: "16px",
+            fontWeight: "bold",
+          }}>
+            🌐 {connectionStatus} {connections.length > 0 && `(${connections.length} connected)`}
           </div>
         )}
 
@@ -1935,27 +2216,33 @@ const CamelRaceGame: React.FC = () => {
               display: "flex",
               justifyContent: "center",
               flexWrap: "wrap",
-              gap: "10px",
+              gap: "8px",
               marginBottom: "20px",
             }}>
-              {["red", "blue", "green", "yellow", "purple"].map(color => {
+              {["red", "blue", "green", "yellow", "purple", "black", "white"].map(color => {
                 const isAvailable = gameState.availableDice.includes(color as DiceColor);
+                const isCrazy = color === "black" || color === "white";
                 return (
                   <div
                     key={color}
                     style={{
-                      width: "50px",
-                      height: "50px",
+                      width: "45px",
+                      height: "45px",
                       backgroundColor: isAvailable ? color : "#333",
-                      border: `3px solid ${isAvailable ? "#8B4513" : "#666"}`,
+                      border: isCrazy && isAvailable 
+                        ? `3px solid #FFD700` 
+                        : `3px solid ${isAvailable ? "#8B4513" : "#666"}`,
                       borderRadius: "10px",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: "24px",
+                      fontSize: "22px",
                       opacity: isAvailable ? 1 : 0.3,
                       transition: "all 0.3s ease",
-                      boxShadow: isAvailable ? "0 3px 6px rgba(0,0,0,0.3)" : "inset 0 3px 6px rgba(0,0,0,0.5)",
+                      boxShadow: isAvailable 
+                        ? (isCrazy ? "0 3px 6px rgba(255,215,0,0.5), 0 0 10px rgba(255,215,0,0.3)" : "0 3px 6px rgba(0,0,0,0.3)") 
+                        : "inset 0 3px 6px rgba(0,0,0,0.5)",
+                      color: color === "yellow" || color === "white" ? "black" : "white",
                     }}
                   >
                     {isAvailable ? "🎲" : "✓"}
@@ -1973,7 +2260,10 @@ const CamelRaceGame: React.FC = () => {
               backgroundColor: "#FFF5E6",
               borderRadius: "10px",
             }}>
-              {gameState.availableDice.length}/5 dice remaining
+              {gameState.availableDice.length}/7 dice remaining
+              <div style={{ fontSize: "12px", marginTop: "5px", color: "#666" }}>
+                ⭐ Black & White camels move backward!
+              </div>
             </div>
 
             <button
