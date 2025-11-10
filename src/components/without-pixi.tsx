@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import Peer, { DataConnection } from "peerjs";
 
 // Full Camel Up Game Implementation with WebRTC and Bot Support
 
@@ -50,6 +51,16 @@ type ActionDialogData = {
   camelColor?: CamelColor;
   value?: number;
 };
+
+// WebRTC Message Types
+type PlayerJoinMessage = { type: 'PLAYER_JOIN'; player: Player };
+type LobbyUpdateMessage = { type: 'LOBBY_UPDATE'; players: Player[] };
+type GameStartMessage = { type: 'GAME_START'; gameState: GameState };
+type GameStateUpdateMessage = { type: 'GAME_STATE_UPDATE'; gameState: GameState; message?: string };
+type PlayerActionMessage = { type: 'PLAYER_ACTION'; action: string; data?: CamelColor | "cheering" | "booing" };
+type BotAddMessage = { type: 'BOT_ADD'; bot: Player };
+type BotRemoveMessage = { type: 'BOT_REMOVE'; botId: string };
+type WebRTCMessage = PlayerJoinMessage | LobbyUpdateMessage | GameStartMessage | GameStateUpdateMessage | PlayerActionMessage | BotAddMessage | BotRemoveMessage;
 
 const TRACK_LENGTH = 16;
 const RACING_CAMELS: CamelColor[] = ["red", "blue", "green", "yellow", "purple"];
@@ -176,8 +187,8 @@ const scoreLegBets = (players: Player[], leaderboard: Camel[]): Player[] => {
 };
 
   // Bot AI - Make decision
-const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action: string; data?: any } => {
-  const availableActions: Array<{ action: string; data?: any; weight: number }> = [];
+const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action: string; data?: CamelColor | "cheering" | "booing" } => {
+  const availableActions: Array<{ action: string; data?: CamelColor | "cheering" | "booing"; weight: number }> = [];
 
   // Consider betting tickets (only on available stacks)
   RACING_CAMELS.forEach(color => {
@@ -740,6 +751,186 @@ const CamelRaceGame: React.FC = () => {
   const [roomCode, setRoomCode] = useState<string>("");
   const [isHost, setIsHost] = useState<boolean>(false);
 
+  // WebRTC/PeerJS state
+  const [connections, setConnections] = useState<DataConnection[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<string>("");
+  const peerRef = useRef<Peer | null>(null);
+  const connectionsRef = useRef<DataConnection[]>([]);
+
+  // Broadcast data to all connected peers
+  const broadcastToPeers = (data: WebRTCMessage) => {
+    connectionsRef.current.forEach(conn => {
+      if (conn.open) {
+        conn.send(data);
+      }
+    });
+  };
+
+  // Setup peer connection handlers
+  const setupConnection = (conn: DataConnection) => {
+    conn.on('data', (data: unknown) => {
+      console.log('Received data from peer:', data);
+      
+      const message = data as WebRTCMessage;
+      
+      if (message.type === 'PLAYER_JOIN') {
+        // Add remote player to lobby
+        setLobbyPlayers(prev => {
+          const exists = prev.some(p => p.id === message.player.id);
+          if (exists) return prev;
+          return [...prev, message.player];
+        });
+        setMessage(`${message.player.name} joined the lobby!`);
+        
+        // If host, send current lobby state to new player
+        if (isHost) {
+          conn.send({
+            type: 'LOBBY_UPDATE',
+            players: lobbyPlayers,
+          } as LobbyUpdateMessage);
+        }
+      } else if (message.type === 'LOBBY_UPDATE') {
+        // Receive lobby update from host
+        setLobbyPlayers(message.players);
+      } else if (message.type === 'GAME_START') {
+        // Game is starting
+        setGameState(message.gameState);
+        setSetupMode('game');
+        setMessage('Game started by host!');
+      } else if (message.type === 'GAME_STATE_UPDATE') {
+        // Sync game state
+        setGameState(message.gameState);
+        if (message.message) {
+          setMessage(message.message);
+        }
+      } else if (message.type === 'PLAYER_ACTION') {
+        // Handle remote player action
+        handleAction(message.action, message.data, true);
+      } else if (message.type === 'BOT_ADD') {
+        // Host added a bot
+        setLobbyPlayers(prev => [...prev, message.bot]);
+      } else if (message.type === 'BOT_REMOVE') {
+        // Host removed a bot
+        setLobbyPlayers(prev => prev.filter(p => p.id !== message.botId));
+      }
+    });
+
+    conn.on('close', () => {
+      console.log('Connection closed');
+      setConnectionStatus('Peer disconnected');
+      setConnections(prev => prev.filter(c => c !== conn));
+      connectionsRef.current = connectionsRef.current.filter(c => c !== conn);
+    });
+
+    conn.on('error', (err) => {
+      console.error('Connection error:', err);
+      setConnectionStatus(`Connection error: ${err.message}`);
+    });
+  };
+
+  // Initialize PeerJS for host
+  const initializePeerAsHost = (code: string) => {
+    try {
+      const newPeer = new Peer(code, {
+        debug: 2,
+      });
+
+      newPeer.on('open', (id) => {
+        console.log('Host peer created with ID:', id);
+        setConnectionStatus(`Hosting with ID: ${id}`);
+        peerRef.current = newPeer;
+      });
+
+      newPeer.on('connection', (conn) => {
+        console.log('Incoming connection from:', conn.peer);
+        setConnectionStatus(`Player connecting...`);
+        
+        setupConnection(conn);
+        
+        conn.on('open', () => {
+          console.log('Connection opened');
+          setConnectionStatus(`Connected to ${conn.peer}`);
+          setConnections(prev => [...prev, conn]);
+          connectionsRef.current = [...connectionsRef.current, conn];
+        });
+      });
+
+      newPeer.on('error', (err) => {
+        console.error('Peer error:', err);
+        setConnectionStatus(`Peer error: ${err.message}`);
+        setMessage(`Connection error: ${err.message}`);
+      });
+    } catch (error) {
+      console.error('Failed to create peer:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setMessage(`Failed to create host: ${errorMessage}`);
+    }
+  };
+
+  // Initialize PeerJS for client
+  const initializePeerAsClient = (hostCode: string) => {
+    try {
+      const newPeer = new Peer({
+        debug: 2,
+      });
+
+      newPeer.on('open', (id) => {
+        console.log('Client peer created with ID:', id);
+        setConnectionStatus(`Connecting to host ${hostCode}...`);
+        peerRef.current = newPeer;
+
+        // Connect to host
+        const conn = newPeer.connect(hostCode, {
+          reliable: true,
+        });
+
+        setupConnection(conn);
+
+        conn.on('open', () => {
+          console.log('Connected to host');
+          setConnectionStatus(`Connected to host`);
+          setConnections([conn]);
+          connectionsRef.current = [conn];
+
+          // Send player info to host
+          const localPlayer = lobbyPlayers[0];
+          conn.send({
+            type: 'PLAYER_JOIN',
+            player: localPlayer,
+          });
+        });
+
+        conn.on('error', (err) => {
+          console.error('Connection failed:', err);
+          setConnectionStatus(`Failed to connect: ${err}`);
+          setMessage(`Failed to connect to host: ${err}`);
+        });
+      });
+
+      newPeer.on('error', (err) => {
+        console.error('Peer error:', err);
+        setConnectionStatus(`Peer error: ${err.message}`);
+        setMessage(`Connection error: ${err.message}`);
+      });
+    } catch (error) {
+      console.error('Failed to create peer:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setMessage(`Failed to connect: ${errorMessage}`);
+    }
+  };
+
+  // Cleanup peer connections
+  useEffect(() => {
+    return () => {
+      connectionsRef.current.forEach(conn => {
+        conn.close();
+      });
+      if (peerRef.current) {
+        peerRef.current.destroy();
+      }
+    };
+  }, []);
+
   // Create or join lobby
   const createLobby = () => {
     if (!playerName.trim()) {
@@ -747,7 +938,7 @@ const CamelRaceGame: React.FC = () => {
       return;
     }
     
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const code = `camelup-${Math.random().toString(36).substring(2, 8).toLowerCase()}`;
     const localPlayer: Player = {
       id: `player-${Date.now()}`,
       name: playerName,
@@ -765,6 +956,9 @@ const CamelRaceGame: React.FC = () => {
     setLobbyPlayers([localPlayer]);
     setSetupMode("lobby");
     setMessage(`Room created! Share code: ${code}`);
+    
+    // Initialize PeerJS as host
+    initializePeerAsHost(code);
   };
 
   const joinLobby = () => {
@@ -789,11 +983,15 @@ const CamelRaceGame: React.FC = () => {
       spectatorTilePlaced: false,
     };
     
-    setRoomCode(roomCodeInput.trim().toUpperCase());
+    const code = roomCodeInput.trim().toLowerCase();
+    setRoomCode(code);
     setIsHost(false);
     setLobbyPlayers([localPlayer]);
     setSetupMode("lobby");
-    setMessage(`Joined room ${roomCodeInput.toUpperCase()}!`);
+    setMessage(`Connecting to room ${code}...`);
+    
+    // Initialize PeerJS as client and connect to host
+    initializePeerAsClient(code);
   };
 
   const addBotToLobby = () => {
@@ -813,10 +1011,26 @@ const CamelRaceGame: React.FC = () => {
     };
     
     setLobbyPlayers([...lobbyPlayers, newBot]);
+    
+    // Broadcast bot addition to all peers
+    if (isHost) {
+      broadcastToPeers({
+        type: 'BOT_ADD',
+        bot: newBot,
+      });
+    }
   };
 
   const removeBotFromLobby = (botId: string) => {
     setLobbyPlayers(lobbyPlayers.filter(p => p.id !== botId));
+    
+    // Broadcast bot removal to all peers
+    if (isHost) {
+      broadcastToPeers({
+        type: 'BOT_REMOVE',
+        botId,
+      });
+    }
   };
 
   const startGameFromLobby = () => {
@@ -832,6 +1046,14 @@ const CamelRaceGame: React.FC = () => {
     setGameState(newGameState);
     setSetupMode("game");
     setMessage("Game started! Place your bets or roll the dice.");
+    
+    // Broadcast game start to all peers
+    if (isHost) {
+      broadcastToPeers({
+        type: 'GAME_START',
+        gameState: newGameState,
+      });
+    }
   };
 
   // Start game (for solo mode only)
@@ -883,6 +1105,16 @@ const CamelRaceGame: React.FC = () => {
     setSetupMode("game");
     setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Game started!` : "Game started! Place your bets or roll the dice.");
   };
+
+  // Sync game state to peers whenever it changes
+  useEffect(() => {
+    if (gameState && isHost && connections.length > 0) {
+      broadcastToPeers({
+        type: 'GAME_STATE_UPDATE',
+        gameState: gameState,
+      });
+    }
+  }, [gameState, isHost, connections.length, broadcastToPeers]);
 
   // Handle bot turn
   useEffect(() => {
@@ -961,10 +1193,19 @@ const CamelRaceGame: React.FC = () => {
     setMessage(`Leg ${gameState.leg} ended! Starting Leg ${gameState.leg + 1}`);
   };
 
-  const handleAction = (action: string, data?: any, skipDialog = false) => {
+  const handleAction = (action: string, data?: CamelColor | "cheering" | "booing", skipDialog = false) => {
     if (!gameState || gameState.gameEnded) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
+    
+    // If this is a local player action in multiplayer, broadcast it
+    if (currentPlayer.isLocal && !skipDialog && connections.length > 0) {
+      broadcastToPeers({
+        type: 'PLAYER_ACTION',
+        action,
+        data,
+      });
+    }
 
     switch (action) {
       case "betting_ticket": {
@@ -1345,9 +1586,9 @@ const CamelRaceGame: React.FC = () => {
             </label>
             <input
               type="text"
-              placeholder="Enter Room Code"
+              placeholder="Enter Room Code (e.g., camelup-abc123)"
               value={roomCodeInput}
-              onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
+              onChange={(e) => setRoomCodeInput(e.target.value.toLowerCase())}
               style={{
                 width: "100%",
                 padding: "15px",
@@ -1356,7 +1597,7 @@ const CamelRaceGame: React.FC = () => {
                 borderRadius: "10px",
                 marginBottom: "10px",
                 boxSizing: "border-box",
-                textTransform: "uppercase",
+                fontFamily: "monospace",
               }}
             />
             <button
@@ -1394,10 +1635,10 @@ const CamelRaceGame: React.FC = () => {
             textAlign: "center",
           }}>
             <p style={{ fontSize: "14px", color: "#666", marginBottom: "5px" }}>
-              💡 Share the room code with friends!
+              💡 Share the room code with friends to play together!
             </p>
             <p style={{ fontSize: "12px", color: "#999" }}>
-              Note: Multiplayer uses local lobby. Real-time sync coming soon!
+              Multiplayer uses WebRTC peer-to-peer connection
             </p>
           </div>
         </div>
@@ -1453,6 +1694,21 @@ const CamelRaceGame: React.FC = () => {
             fontWeight: "bold",
           }}>
             {message}
+          </div>
+        )}
+
+        {connectionStatus && (
+          <div style={{
+            padding: "15px 30px",
+            backgroundColor: connections.length > 0 ? "#4CAF50" : "#2196F3",
+            color: "white",
+            border: "3px solid #333",
+            borderRadius: "10px",
+            marginBottom: "20px",
+            fontSize: "16px",
+            fontWeight: "bold",
+          }}>
+            🌐 {connectionStatus} {connections.length > 0 && `(${connections.length} connected)`}
           </div>
         )}
 
