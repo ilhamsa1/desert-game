@@ -333,8 +333,8 @@ const Track: React.FC<{
   onTileClick?: (position: number) => void;
   clickablePositions?: boolean;
 }> = ({ camels, spectatorTiles, onTileClick, clickablePositions }) => {
-  const trackWidth = 900;
-  const trackHeight = 450;
+  const trackWidth = 800;
+  const trackHeight = 400;
   const totalPositions = TRACK_LENGTH;
   const positionPerSide = totalPositions / 4;
 
@@ -379,7 +379,7 @@ const Track: React.FC<{
       position: "relative",
       width: `${trackWidth}px`,
       height: `${trackHeight}px`,
-      border: "6px solid #8B4513",
+      border: "5px solid #8B4513",
       background: "linear-gradient(135deg, #F4A460 0%, #DEB887 50%, #D2691E 100%)",
       borderRadius: "20px",
       boxShadow: "0 12px 24px rgba(0,0,0,0.4), inset 0 0 50px rgba(139,69,19,0.3)",
@@ -433,8 +433,8 @@ const Track: React.FC<{
               position: "absolute",
               left: `${x + 15}px`,
               top: `${y + 15}px`,
-              width: "60px",
-              height: "60px",
+              width: "50px",
+              height: "50px",
               background: index === 0 
                 ? "linear-gradient(135deg, #4CAF50 0%, #45a049 100%)" 
                 : getTileStyle(index),
@@ -505,9 +505,9 @@ const Track: React.FC<{
             style={{
               position: "absolute",
               left: `${x + 15}px`,
-              top: `${y - 5 - (camel.stackOrder * 40)}px`,
-              width: "60px",
-              height: "45px",
+              top: `${y - 5 - (camel.stackOrder * 35)}px`,
+              width: "50px",
+              height: "40px",
               backgroundColor: camel.color,
               border: "3px solid #333",
               borderRadius: "20px 20px 10px 10px",
@@ -724,7 +724,7 @@ const BettingPanel: React.FC<{
 
 // Main Game Component
 const CamelRaceGame: React.FC = () => {
-  const [setupMode, setSetupMode] = useState<"menu" | "room" | "game">("menu");
+  const [setupMode, setSetupMode] = useState<"menu" | "lobby" | "game">("menu");
   const [playerName, setPlayerName] = useState("");
   const [numBots, setNumBots] = useState(2);
   const [roomCodeInput, setRoomCodeInput] = useState("");
@@ -734,8 +734,107 @@ const CamelRaceGame: React.FC = () => {
   const [placingTile, setPlacingTile] = useState<"cheering" | "booing" | null>(null);
   const [waitingForNextTurn, setWaitingForNextTurn] = useState<boolean>(false);
   const botTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Lobby state
+  const [lobbyPlayers, setLobbyPlayers] = useState<Player[]>([]);
+  const [roomCode, setRoomCode] = useState<string>("");
+  const [isHost, setIsHost] = useState<boolean>(false);
 
-  // Start game
+  // Create or join lobby
+  const createLobby = () => {
+    if (!playerName.trim()) {
+      setMessage("Please enter your name!");
+      return;
+    }
+    
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const localPlayer: Player = {
+      id: `player-${Date.now()}`,
+      name: playerName,
+      money: 3,
+      color: "#FF6B6B",
+      isBot: false,
+      isLocal: true,
+      bettingTickets: [],
+      pyramidTickets: 0,
+      spectatorTilePlaced: false,
+    };
+    
+    setRoomCode(code);
+    setIsHost(true);
+    setLobbyPlayers([localPlayer]);
+    setSetupMode("lobby");
+    setMessage(`Room created! Share code: ${code}`);
+  };
+
+  const joinLobby = () => {
+    if (!playerName.trim()) {
+      setMessage("Please enter your name!");
+      return;
+    }
+    if (!roomCodeInput.trim()) {
+      setMessage("Please enter a room code!");
+      return;
+    }
+    
+    const localPlayer: Player = {
+      id: `player-${Date.now()}`,
+      name: playerName,
+      money: 3,
+      color: "#4ECDC4",
+      isBot: false,
+      isLocal: true,
+      bettingTickets: [],
+      pyramidTickets: 0,
+      spectatorTilePlaced: false,
+    };
+    
+    setRoomCode(roomCodeInput.trim().toUpperCase());
+    setIsHost(false);
+    setLobbyPlayers([localPlayer]);
+    setSetupMode("lobby");
+    setMessage(`Joined room ${roomCodeInput.toUpperCase()}!`);
+  };
+
+  const addBotToLobby = () => {
+    const botNumber = lobbyPlayers.filter(p => p.isBot).length + 1;
+    const colors = ["#FFE66D", "#95E1D3", "#F38181", "#AA96DA", "#FFA07A"];
+    
+    const newBot: Player = {
+      id: `bot-${Date.now()}`,
+      name: `Bot ${botNumber}`,
+      money: 3,
+      color: colors[(botNumber - 1) % colors.length],
+      isBot: true,
+      isLocal: false,
+      bettingTickets: [],
+      pyramidTickets: 0,
+      spectatorTilePlaced: false,
+    };
+    
+    setLobbyPlayers([...lobbyPlayers, newBot]);
+  };
+
+  const removeBotFromLobby = (botId: string) => {
+    setLobbyPlayers(lobbyPlayers.filter(p => p.id !== botId));
+  };
+
+  const startGameFromLobby = () => {
+    if (lobbyPlayers.length === 0) {
+      setMessage("Need at least 1 player to start!");
+      return;
+    }
+    
+    const newGameState = initializeGame(lobbyPlayers);
+    newGameState.roomCode = roomCode;
+    newGameState.isHost = isHost;
+    
+    setGameState(newGameState);
+    setSetupMode("game");
+    setMessage("Game started! Place your bets or roll the dice.");
+  };
+
+  // Start game (for solo mode only)
   const startGame = (mode: "solo" | "host" | "join") => {
     const localPlayerId = `player-${Date.now()}`;
     const players: Player[] = [
@@ -1212,7 +1311,7 @@ const CamelRaceGame: React.FC = () => {
           </button>
 
           <button
-            onClick={() => startGame("host")}
+            onClick={createLobby}
             style={{
               width: "100%",
               padding: "20px",
@@ -1261,7 +1360,7 @@ const CamelRaceGame: React.FC = () => {
               }}
             />
             <button
-              onClick={() => startGame("join")}
+              onClick={joinLobby}
               disabled={!roomCodeInput.trim()}
               style={{
                 width: "100%",
@@ -1298,9 +1397,230 @@ const CamelRaceGame: React.FC = () => {
               💡 Share the room code with friends!
             </p>
             <p style={{ fontSize: "12px", color: "#999" }}>
-              Note: WebRTC synchronization coming soon. For now, rooms are local.
+              Note: Multiplayer uses local lobby. Real-time sync coming soon!
             </p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Lobby screen
+  if (setupMode === "lobby") {
+    return (
+      <div style={{
+        padding: "40px",
+        fontFamily: "Arial, sans-serif",
+        backgroundColor: "#FFF5E6",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+      }}>
+        <h1 style={{
+          fontSize: "56px",
+          color: "#8B4513",
+          textShadow: "4px 4px 8px rgba(0,0,0,0.3)",
+          marginBottom: "20px",
+        }}>
+          🐪 Game Lobby 🐪
+        </h1>
+
+        {/* Room Code Display */}
+        <div style={{
+          backgroundColor: "#2196F3",
+          color: "white",
+          padding: "20px 40px",
+          borderRadius: "15px",
+          marginBottom: "30px",
+          fontSize: "32px",
+          fontWeight: "bold",
+          border: "4px solid #333",
+          boxShadow: "0 6px 12px rgba(0,0,0,0.3)",
+        }}>
+          Room Code: {roomCode}
+        </div>
+
+        {message && (
+          <div style={{
+            padding: "15px 30px",
+            backgroundColor: "#FFE66D",
+            border: "3px solid #333",
+            borderRadius: "10px",
+            marginBottom: "20px",
+            fontSize: "18px",
+            fontWeight: "bold",
+          }}>
+            {message}
+          </div>
+        )}
+
+        <div style={{
+          backgroundColor: "#FFF",
+          padding: "40px",
+          borderRadius: "20px",
+          border: "4px solid #8B4513",
+          boxShadow: "0 10px 20px rgba(0,0,0,0.2)",
+          maxWidth: "800px",
+          width: "100%",
+        }}>
+          <h2 style={{
+            textAlign: "center",
+            color: "#8B4513",
+            marginBottom: "30px",
+            fontSize: "32px",
+          }}>
+            Players ({lobbyPlayers.length})
+          </h2>
+
+          {/* Player List */}
+          <div style={{ marginBottom: "30px" }}>
+            {lobbyPlayers.map((player, index) => (
+              <div
+                key={player.id}
+                style={{
+                  padding: "20px",
+                  marginBottom: "15px",
+                  background: `linear-gradient(135deg, ${player.color} 0%, ${player.color}dd 100%)`,
+                  borderRadius: "12px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontWeight: "bold",
+                  fontSize: "20px",
+                  border: "3px solid #333",
+                  color: "#FFF",
+                  textShadow: "1px 1px 2px rgba(0,0,0,0.5)",
+                }}
+              >
+                <span>
+                  {index + 1}. {player.name} {player.isBot && "🤖"} {player.isLocal && "(You)"}
+                </span>
+                {isHost && player.isBot && (
+                  <button
+                    onClick={() => removeBotFromLobby(player.id)}
+                    style={{
+                      padding: "8px 15px",
+                      fontSize: "16px",
+                      backgroundColor: "#F44336",
+                      color: "white",
+                      border: "2px solid #333",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    ❌ Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Host Controls */}
+          {isHost && (
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "15px",
+              marginBottom: "20px",
+            }}>
+              <button
+                onClick={addBotToLobby}
+                disabled={lobbyPlayers.length >= 5}
+                style={{
+                  width: "100%",
+                  padding: "18px",
+                  fontSize: "20px",
+                  backgroundColor: lobbyPlayers.length >= 5 ? "#ccc" : "#FFE66D",
+                  color: "#333",
+                  border: "4px solid #333",
+                  borderRadius: "12px",
+                  cursor: lobbyPlayers.length >= 5 ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  transition: "transform 0.2s",
+                  opacity: lobbyPlayers.length >= 5 ? 0.6 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (lobbyPlayers.length < 5) {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+              >
+                🤖 Add Bot {lobbyPlayers.length >= 5 && "(Max 5 players)"}
+              </button>
+
+              <button
+                onClick={startGameFromLobby}
+                disabled={lobbyPlayers.length === 0}
+                style={{
+                  width: "100%",
+                  padding: "20px",
+                  fontSize: "24px",
+                  backgroundColor: lobbyPlayers.length === 0 ? "#ccc" : "#4CAF50",
+                  color: "white",
+                  border: "4px solid #333",
+                  borderRadius: "12px",
+                  cursor: lobbyPlayers.length === 0 ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  transition: "transform 0.2s",
+                  boxShadow: lobbyPlayers.length > 0 ? "0 6px 12px rgba(76, 175, 80, 0.5)" : "none",
+                }}
+                onMouseEnter={(e) => {
+                  if (lobbyPlayers.length > 0) {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+              >
+                🚀 START GAME
+              </button>
+            </div>
+          )}
+
+          {/* Non-host waiting message */}
+          {!isHost && (
+            <div style={{
+              padding: "20px",
+              backgroundColor: "#FFE66D",
+              borderRadius: "12px",
+              textAlign: "center",
+              fontSize: "18px",
+              fontWeight: "bold",
+              border: "3px solid #333",
+            }}>
+              ⏳ Waiting for host to start the game...
+            </div>
+          )}
+
+          {/* Back to Menu Button */}
+          <button
+            onClick={() => {
+              setSetupMode("menu");
+              setLobbyPlayers([]);
+              setRoomCode("");
+              setMessage("");
+            }}
+            style={{
+              width: "100%",
+              marginTop: "20px",
+              padding: "15px",
+              fontSize: "18px",
+              backgroundColor: "#FF5722",
+              color: "white",
+              border: "3px solid #333",
+              borderRadius: "10px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              transition: "transform 0.2s",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+          >
+            🏠 Back to Menu
+          </button>
         </div>
       </div>
     );
@@ -1455,6 +1775,18 @@ const CamelRaceGame: React.FC = () => {
             background-position: 0% 50%;
           }
         }
+        
+        /* Responsive Layout */
+        @media (max-width: 1700px) {
+          .game-grid {
+            grid-template-columns: 1fr !important;
+            justify-items: center !important;
+          }
+          .left-panel, .right-panel {
+            max-width: 800px !important;
+            width: 100% !important;
+          }
+        }
       `}</style>
 
       <h1 style={{
@@ -1493,7 +1825,7 @@ const CamelRaceGame: React.FC = () => {
         flexWrap: "wrap",
         gap: "15px",
         boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
-        maxWidth: "900px",
+        maxWidth: "1650px",
         margin: "0 auto 20px auto",
       }}>
         <div style={{ fontSize: "24px", fontWeight: "bold", color: "#8B4513" }}>
@@ -1516,7 +1848,7 @@ const CamelRaceGame: React.FC = () => {
           fontWeight: "bold",
           marginBottom: "25px",
           boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
-          maxWidth: "900px",
+          maxWidth: "1650px",
           margin: "0 auto 25px auto",
         }}>
           {message}
@@ -1526,7 +1858,7 @@ const CamelRaceGame: React.FC = () => {
       {/* Manual Next Turn Button */}
       {waitingForNextTurn && (
         <div style={{
-          maxWidth: "900px",
+          maxWidth: "1650px",
           margin: "0 auto 25px auto",
           textAlign: "center",
         }}>
@@ -1567,30 +1899,28 @@ const CamelRaceGame: React.FC = () => {
         </div>
       )}
 
-      {/* Main Game Layout - Board Center with Dice on Left, Leaderboard Right */}
-      <div style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        gap: "30px",
-        maxWidth: "1600px",
+      {/* Main Game Layout - Organized in Grid */}
+      <div className="game-grid" style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(280px, 300px) 1fr minmax(320px, 350px)",
+        gap: "25px",
+        maxWidth: "1650px",
         margin: "0 auto 30px auto",
-        flexWrap: "wrap",
+        padding: "0 20px",
       }}>
         {/* Dice Roller on the Left */}
-        <div style={{
-          flex: "0 0 auto",
+        <div className="left-panel" style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
+          gap: "20px",
         }}>
           <div style={{
-            padding: "30px",
+            padding: "25px",
             backgroundColor: "#FFF",
             borderRadius: "20px",
             border: "5px solid #8B4513",
             boxShadow: "0 8px 16px rgba(0,0,0,0.3)",
             textAlign: "center",
-            minWidth: "280px",
           }}>
             <h2 style={{ 
               color: "#8B4513", 
@@ -1693,14 +2023,118 @@ const CamelRaceGame: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Spectator Tile Placement - In Left Column */}
+          <div style={{
+            padding: "20px",
+            backgroundColor: "#FFF",
+            borderRadius: "15px",
+            border: "3px solid #8B4513",
+            boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+          }}>
+            <h3 style={{ 
+              textAlign: "center", 
+              color: "#8B4513",
+              marginBottom: "15px",
+              fontSize: "18px",
+            }}>
+              🎪 Spectator Tiles
+            </h3>
+            <div style={{ 
+              display: "flex", 
+              flexDirection: "column",
+              gap: "12px",
+            }}>
+              <button
+                onClick={() => handleAction("spectator_tile", "cheering")}
+                disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
+                style={{
+                  padding: "15px 20px",
+                  fontSize: "16px",
+                  backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#4CAF50",
+                  color: "white",
+                  border: "3px solid #333",
+                  borderRadius: "10px",
+                  cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
+                  transition: "transform 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                👍 Cheering<br/>
+                <span style={{ fontSize: "12px" }}>(+1 extra)</span>
+              </button>
+              <button
+                onClick={() => handleAction("spectator_tile", "booing")}
+                disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
+                style={{
+                  padding: "15px 20px",
+                  fontSize: "16px",
+                  backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#F44336",
+                  color: "white",
+                  border: "3px solid #333",
+                  borderRadius: "10px",
+                  cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
+                  transition: "transform 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                👎 Booing<br/>
+                <span style={{ fontSize: "12px" }}>(-1 space)</span>
+              </button>
+            </div>
+            {currentPlayer.spectatorTilePlaced && (
+              <div style={{
+                marginTop: "12px",
+                padding: "8px",
+                backgroundColor: "#FFE66D",
+                borderRadius: "8px",
+                fontSize: "12px",
+                fontWeight: "bold",
+                textAlign: "center",
+              }}>
+                ✓ Already Placed
+              </div>
+            )}
+            {placingTile && (
+              <div style={{
+                marginTop: "12px",
+                padding: "10px",
+                backgroundColor: "#FFE66D",
+                borderRadius: "8px",
+                textAlign: "center",
+                fontSize: "13px",
+                fontWeight: "bold",
+              }}>
+                ⚡ Click on track to place!
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Board in Center */}
         <div style={{
-          flex: "0 0 auto",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
+          justifyContent: "center",
         }}>
           <Track 
             camels={gameState.camels}
@@ -1711,9 +2145,7 @@ const CamelRaceGame: React.FC = () => {
         </div>
 
         {/* Leaderboard on the Right */}
-        <div style={{
-          flex: "0 0 auto",
-        }}>
+        <div className="right-panel">
           <EnhancedLeaderboard 
             players={gameState.players}
             camels={gameState.camels}
@@ -1721,103 +2153,8 @@ const CamelRaceGame: React.FC = () => {
         </div>
       </div>
 
-      {/* Spectator Tile Placement */}
-      <div style={{
-        margin: "20px auto",
-        padding: "25px",
-        backgroundColor: "#FFF",
-        borderRadius: "15px",
-        border: "3px solid #8B4513",
-        maxWidth: "900px",
-        boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
-      }}>
-        <h3 style={{ 
-          textAlign: "center", 
-          color: "#8B4513",
-          marginBottom: "20px",
-          fontSize: "24px",
-        }}>
-          Place Spectator Tile {currentPlayer.spectatorTilePlaced && "(Already Placed)"}
-        </h3>
-        <div style={{ 
-          display: "flex", 
-          gap: "20px", 
-          justifyContent: "center",
-          flexWrap: "wrap",
-        }}>
-          <button
-            onClick={() => handleAction("spectator_tile", "cheering")}
-            disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
-            style={{
-              padding: "20px 40px",
-              fontSize: "20px",
-              backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#4CAF50",
-              color: "white",
-              border: "4px solid #333",
-              borderRadius: "12px",
-              cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-              opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
-              transition: "transform 0.2s",
-              minWidth: "200px",
-            }}
-            onMouseEnter={(e) => {
-              if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
-                e.currentTarget.style.transform = "scale(1.1)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-          >
-            👍 Cheering Tile<br/>
-            <span style={{ fontSize: "14px" }}>(Camel moves +1 extra)</span>
-          </button>
-          <button
-            onClick={() => handleAction("spectator_tile", "booing")}
-            disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
-            style={{
-              padding: "20px 40px",
-              fontSize: "20px",
-              backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#F44336",
-              color: "white",
-              border: "4px solid #333",
-              borderRadius: "12px",
-              cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-              opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
-              transition: "transform 0.2s",
-              minWidth: "200px",
-            }}
-            onMouseEnter={(e) => {
-              if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
-                e.currentTarget.style.transform = "scale(1.1)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-          >
-            👎 Booing Tile<br/>
-            <span style={{ fontSize: "14px" }}>(Camel moves -1 space)</span>
-          </button>
-        </div>
-        {placingTile && (
-          <div style={{
-            marginTop: "20px",
-            padding: "15px",
-            backgroundColor: "#FFE66D",
-            borderRadius: "10px",
-            textAlign: "center",
-            fontSize: "18px",
-            fontWeight: "bold",
-          }}>
-            ⚡ Click on any empty track position to place your {placingTile} tile!
-          </div>
-        )}
-      </div>
-
-      <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+      {/* Betting Panel - Now Below the Grid */}
+      <div style={{ maxWidth: "1650px", margin: "0 auto", padding: "0 20px" }}>
         <BettingPanel
           gameState={gameState}
           onBet={(color) => handleAction("betting_ticket", color)}
