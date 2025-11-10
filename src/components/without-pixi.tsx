@@ -184,7 +184,7 @@ const scoreLegBets = (players: Player[], leaderboard: Camel[]): Player[] => {
 const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action: string; data?: any } => {
   const availableActions: Array<{ action: string; data?: any; weight: number }> = [];
 
-  // Consider betting tickets
+  // Consider betting tickets (only on available stacks)
   RACING_CAMELS.forEach(color => {
     const stack = gameState.legBettingStacks[color] || [];
     if (stack.length > 0) {
@@ -194,14 +194,36 @@ const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action:
     }
   });
 
-  // Consider placing spectator tile (if not placed)
+  // Consider placing spectator tile (if not placed and valid positions exist)
   if (!currentPlayer.spectatorTilePlaced) {
-    availableActions.push({ action: "spectator_tile", data: Math.random() > 0.5 ? "cheering" : "booing", weight: 5 });
+    // Check if there are any valid positions for placing a tile
+    let hasValidPosition = false;
+    for (let i = 1; i < TRACK_LENGTH; i++) {
+      const hasCamel = gameState.camels.some(c => c.position === i);
+      const hasTile = gameState.spectatorTiles.some(t => t.position === i);
+      if (!hasCamel && !hasTile) {
+        hasValidPosition = true;
+        break;
+      }
+    }
+    
+    if (hasValidPosition) {
+      availableActions.push({ action: "spectator_tile", data: Math.random() > 0.5 ? "cheering" : "booing", weight: 5 });
+    }
   }
 
-  // Consider rolling dice (always attractive)
+  // Consider rolling dice (if dice are available)
   if (gameState.availableDice.length > 0) {
     availableActions.push({ action: "pyramid_ticket", weight: 10 });
+  }
+
+  // If no valid actions available, default to rolling dice (with safety check)
+  if (availableActions.length === 0) {
+    if (gameState.availableDice.length > 0) {
+      return { action: "pyramid_ticket" };
+    }
+    // This should never happen, but as ultimate fallback
+    return { action: "betting_ticket", data: RACING_CAMELS[0] };
   }
 
   // Weighted random selection
@@ -215,8 +237,8 @@ const makeBotDecision = (gameState: GameState, currentPlayer: Player): { action:
     }
   }
 
-  // Fallback to rolling dice
-  return { action: "pyramid_ticket" };
+  // Fallback to first available action
+  return availableActions[0];
 };
 
 // Modal Dialog Component
@@ -888,10 +910,34 @@ const CamelRaceGame: React.FC = () => {
     if (currentPlayer.isBot) {
       if (botTimerRef.current) clearTimeout(botTimerRef.current);
       
+      // Bot makes a decision
       botTimerRef.current = setTimeout(() => {
         const decision = makeBotDecision(gameState, currentPlayer);
         handleAction(decision.action, decision.data, true);
       }, 1500);
+      
+      // Safety fallback: if bot doesn't advance after 5 seconds, force next player
+      const botId = currentPlayer.id;
+      const safetyTimeout = setTimeout(() => {
+        setGameState(prevState => {
+          if (!prevState) return prevState;
+          const currentTurnPlayer = prevState.players[prevState.currentPlayer];
+          // Only force next player if it's still the same bot's turn
+          if (currentTurnPlayer?.id === botId && currentTurnPlayer.isBot) {
+            console.warn(`Bot ${currentPlayer.name} stuck, forcing next turn`);
+            return {
+              ...prevState,
+              currentPlayer: (prevState.currentPlayer + 1) % prevState.players.length,
+            };
+          }
+          return prevState;
+        });
+      }, 5000);
+      
+      return () => {
+        if (botTimerRef.current) clearTimeout(botTimerRef.current);
+        clearTimeout(safetyTimeout);
+      };
     }
 
     return () => {
@@ -939,7 +985,13 @@ const CamelRaceGame: React.FC = () => {
       case "betting_ticket": {
         const color = data as CamelColor;
         const stack = gameState.legBettingStacks[color] || [];
-        if (stack.length === 0) return;
+        if (stack.length === 0) {
+          // If bot tries to bet on sold-out camel, skip to next player
+          if (currentPlayer.isBot) {
+            setTimeout(() => nextPlayer(), 100);
+          }
+          return;
+        }
 
         const value = stack[stack.length - 1];
         const newStack = stack.slice(0, -1);
@@ -977,14 +1029,72 @@ const CamelRaceGame: React.FC = () => {
       }
 
       case "spectator_tile": {
-        if (currentPlayer.spectatorTilePlaced) return;
-        setPlacingTile(data as "cheering" | "booing");
-        setMessage(`${currentPlayer.name}, click on a track position to place your ${data} tile...`);
+        if (currentPlayer.spectatorTilePlaced) {
+          // If tile already placed, skip to next player (bot fallback)
+          if (currentPlayer.isBot) {
+            setTimeout(() => nextPlayer(), 100);
+          }
+          return;
+        }
+        
+        // For bots, automatically place the tile at a random valid position
+        if (currentPlayer.isBot) {
+          const tileType = data as "cheering" | "booing";
+          
+          // Find all valid positions (not position 0, no camels, no existing tiles)
+          const validPositions: number[] = [];
+          for (let i = 1; i < TRACK_LENGTH; i++) {
+            const hasCamel = gameState.camels.some(c => c.position === i);
+            const hasTile = gameState.spectatorTiles.some(t => t.position === i);
+            if (!hasCamel && !hasTile) {
+              validPositions.push(i);
+            }
+          }
+          
+          // If there are valid positions, place the tile
+          if (validPositions.length > 0) {
+            const randomPosition = validPositions[Math.floor(Math.random() * validPositions.length)];
+            
+            // Remove bot's previous tile if exists
+            const newTiles = gameState.spectatorTiles.filter(t => t.owner !== currentPlayer.name);
+            
+            newTiles.push({
+              position: randomPosition,
+              type: tileType,
+              owner: currentPlayer.name,
+            });
+            
+            setGameState({
+              ...gameState,
+              spectatorTiles: newTiles,
+              players: gameState.players.map(p =>
+                p.id === currentPlayer.id
+                  ? { ...p, spectatorTilePlaced: true }
+                  : p
+              ),
+            });
+            
+            setMessage(`${currentPlayer.name} placed a ${tileType} tile at position ${randomPosition + 1}!`);
+          }
+          
+          // Move to next player
+          setTimeout(() => nextPlayer(), 100);
+        } else {
+          // For human players, set the placing mode
+          setPlacingTile(data as "cheering" | "booing");
+          setMessage(`${currentPlayer.name}, click on a track position to place your ${data} tile...`);
+        }
         break;
       }
 
       case "pyramid_ticket": {
-        if (gameState.availableDice.length === 0) return;
+        if (gameState.availableDice.length === 0) {
+          // If bot tries to roll with no dice available, skip to next player
+          if (currentPlayer.isBot) {
+            setTimeout(() => nextPlayer(), 100);
+          }
+          return;
+        }
 
         const randomIndex = Math.floor(Math.random() * gameState.availableDice.length);
         const diceColor = gameState.availableDice[randomIndex];
