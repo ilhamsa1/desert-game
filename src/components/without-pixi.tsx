@@ -333,8 +333,8 @@ const Track: React.FC<{
   onTileClick?: (position: number) => void;
   clickablePositions?: boolean;
 }> = ({ camels, spectatorTiles, onTileClick, clickablePositions }) => {
-  const trackWidth = 900;
-  const trackHeight = 450;
+  const trackWidth = 800;
+  const trackHeight = 400;
   const totalPositions = TRACK_LENGTH;
   const positionPerSide = totalPositions / 4;
 
@@ -379,7 +379,7 @@ const Track: React.FC<{
       position: "relative",
       width: `${trackWidth}px`,
       height: `${trackHeight}px`,
-      border: "6px solid #8B4513",
+      border: "5px solid #8B4513",
       background: "linear-gradient(135deg, #F4A460 0%, #DEB887 50%, #D2691E 100%)",
       borderRadius: "20px",
       boxShadow: "0 12px 24px rgba(0,0,0,0.4), inset 0 0 50px rgba(139,69,19,0.3)",
@@ -433,8 +433,8 @@ const Track: React.FC<{
               position: "absolute",
               left: `${x + 15}px`,
               top: `${y + 15}px`,
-              width: "60px",
-              height: "60px",
+              width: "50px",
+              height: "50px",
               background: index === 0 
                 ? "linear-gradient(135deg, #4CAF50 0%, #45a049 100%)" 
                 : getTileStyle(index),
@@ -505,9 +505,9 @@ const Track: React.FC<{
             style={{
               position: "absolute",
               left: `${x + 15}px`,
-              top: `${y - 5 - (camel.stackOrder * 40)}px`,
-              width: "60px",
-              height: "45px",
+              top: `${y - 5 - (camel.stackOrder * 35)}px`,
+              width: "50px",
+              height: "40px",
               backgroundColor: camel.color,
               border: "3px solid #333",
               borderRadius: "20px 20px 10px 10px",
@@ -1455,6 +1455,18 @@ const CamelRaceGame: React.FC = () => {
             background-position: 0% 50%;
           }
         }
+        
+        /* Responsive Layout */
+        @media (max-width: 1700px) {
+          .game-grid {
+            grid-template-columns: 1fr !important;
+            justify-items: center !important;
+          }
+          .left-panel, .right-panel {
+            max-width: 800px !important;
+            width: 100% !important;
+          }
+        }
       `}</style>
 
       <h1 style={{
@@ -1493,7 +1505,7 @@ const CamelRaceGame: React.FC = () => {
         flexWrap: "wrap",
         gap: "15px",
         boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
-        maxWidth: "900px",
+        maxWidth: "1650px",
         margin: "0 auto 20px auto",
       }}>
         <div style={{ fontSize: "24px", fontWeight: "bold", color: "#8B4513" }}>
@@ -1516,7 +1528,7 @@ const CamelRaceGame: React.FC = () => {
           fontWeight: "bold",
           marginBottom: "25px",
           boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
-          maxWidth: "900px",
+          maxWidth: "1650px",
           margin: "0 auto 25px auto",
         }}>
           {message}
@@ -1526,7 +1538,7 @@ const CamelRaceGame: React.FC = () => {
       {/* Manual Next Turn Button */}
       {waitingForNextTurn && (
         <div style={{
-          maxWidth: "900px",
+          maxWidth: "1650px",
           margin: "0 auto 25px auto",
           textAlign: "center",
         }}>
@@ -1567,30 +1579,28 @@ const CamelRaceGame: React.FC = () => {
         </div>
       )}
 
-      {/* Main Game Layout - Board Center with Dice on Left, Leaderboard Right */}
-      <div style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        gap: "30px",
-        maxWidth: "1600px",
+      {/* Main Game Layout - Organized in Grid */}
+      <div className="game-grid" style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(280px, 300px) 1fr minmax(320px, 350px)",
+        gap: "25px",
+        maxWidth: "1650px",
         margin: "0 auto 30px auto",
-        flexWrap: "wrap",
+        padding: "0 20px",
       }}>
         {/* Dice Roller on the Left */}
-        <div style={{
-          flex: "0 0 auto",
+        <div className="left-panel" style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
+          gap: "20px",
         }}>
           <div style={{
-            padding: "30px",
+            padding: "25px",
             backgroundColor: "#FFF",
             borderRadius: "20px",
             border: "5px solid #8B4513",
             boxShadow: "0 8px 16px rgba(0,0,0,0.3)",
             textAlign: "center",
-            minWidth: "280px",
           }}>
             <h2 style={{ 
               color: "#8B4513", 
@@ -1693,14 +1703,118 @@ const CamelRaceGame: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Spectator Tile Placement - In Left Column */}
+          <div style={{
+            padding: "20px",
+            backgroundColor: "#FFF",
+            borderRadius: "15px",
+            border: "3px solid #8B4513",
+            boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+          }}>
+            <h3 style={{ 
+              textAlign: "center", 
+              color: "#8B4513",
+              marginBottom: "15px",
+              fontSize: "18px",
+            }}>
+              🎪 Spectator Tiles
+            </h3>
+            <div style={{ 
+              display: "flex", 
+              flexDirection: "column",
+              gap: "12px",
+            }}>
+              <button
+                onClick={() => handleAction("spectator_tile", "cheering")}
+                disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
+                style={{
+                  padding: "15px 20px",
+                  fontSize: "16px",
+                  backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#4CAF50",
+                  color: "white",
+                  border: "3px solid #333",
+                  borderRadius: "10px",
+                  cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
+                  transition: "transform 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                👍 Cheering<br/>
+                <span style={{ fontSize: "12px" }}>(+1 extra)</span>
+              </button>
+              <button
+                onClick={() => handleAction("spectator_tile", "booing")}
+                disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
+                style={{
+                  padding: "15px 20px",
+                  fontSize: "16px",
+                  backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#F44336",
+                  color: "white",
+                  border: "3px solid #333",
+                  borderRadius: "10px",
+                  cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
+                  transition: "transform 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
+                    e.currentTarget.style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                👎 Booing<br/>
+                <span style={{ fontSize: "12px" }}>(-1 space)</span>
+              </button>
+            </div>
+            {currentPlayer.spectatorTilePlaced && (
+              <div style={{
+                marginTop: "12px",
+                padding: "8px",
+                backgroundColor: "#FFE66D",
+                borderRadius: "8px",
+                fontSize: "12px",
+                fontWeight: "bold",
+                textAlign: "center",
+              }}>
+                ✓ Already Placed
+              </div>
+            )}
+            {placingTile && (
+              <div style={{
+                marginTop: "12px",
+                padding: "10px",
+                backgroundColor: "#FFE66D",
+                borderRadius: "8px",
+                textAlign: "center",
+                fontSize: "13px",
+                fontWeight: "bold",
+              }}>
+                ⚡ Click on track to place!
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Board in Center */}
         <div style={{
-          flex: "0 0 auto",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
+          justifyContent: "center",
         }}>
           <Track 
             camels={gameState.camels}
@@ -1711,9 +1825,7 @@ const CamelRaceGame: React.FC = () => {
         </div>
 
         {/* Leaderboard on the Right */}
-        <div style={{
-          flex: "0 0 auto",
-        }}>
+        <div className="right-panel">
           <EnhancedLeaderboard 
             players={gameState.players}
             camels={gameState.camels}
@@ -1721,103 +1833,8 @@ const CamelRaceGame: React.FC = () => {
         </div>
       </div>
 
-      {/* Spectator Tile Placement */}
-      <div style={{
-        margin: "20px auto",
-        padding: "25px",
-        backgroundColor: "#FFF",
-        borderRadius: "15px",
-        border: "3px solid #8B4513",
-        maxWidth: "900px",
-        boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
-      }}>
-        <h3 style={{ 
-          textAlign: "center", 
-          color: "#8B4513",
-          marginBottom: "20px",
-          fontSize: "24px",
-        }}>
-          Place Spectator Tile {currentPlayer.spectatorTilePlaced && "(Already Placed)"}
-        </h3>
-        <div style={{ 
-          display: "flex", 
-          gap: "20px", 
-          justifyContent: "center",
-          flexWrap: "wrap",
-        }}>
-          <button
-            onClick={() => handleAction("spectator_tile", "cheering")}
-            disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
-            style={{
-              padding: "20px 40px",
-              fontSize: "20px",
-              backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#4CAF50",
-              color: "white",
-              border: "4px solid #333",
-              borderRadius: "12px",
-              cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-              opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
-              transition: "transform 0.2s",
-              minWidth: "200px",
-            }}
-            onMouseEnter={(e) => {
-              if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
-                e.currentTarget.style.transform = "scale(1.1)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-          >
-            👍 Cheering Tile<br/>
-            <span style={{ fontSize: "14px" }}>(Camel moves +1 extra)</span>
-          </button>
-          <button
-            onClick={() => handleAction("spectator_tile", "booing")}
-            disabled={!isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || !!placingTile}
-            style={{
-              padding: "20px 40px",
-              fontSize: "20px",
-              backgroundColor: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? "#ccc" : "#F44336",
-              color: "white",
-              border: "4px solid #333",
-              borderRadius: "12px",
-              cursor: !isLocalPlayerTurn || currentPlayer.spectatorTilePlaced || placingTile ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-              opacity: currentPlayer.spectatorTilePlaced || !isLocalPlayerTurn ? 0.5 : 1,
-              transition: "transform 0.2s",
-              minWidth: "200px",
-            }}
-            onMouseEnter={(e) => {
-              if (isLocalPlayerTurn && !currentPlayer.spectatorTilePlaced && !placingTile) {
-                e.currentTarget.style.transform = "scale(1.1)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-          >
-            👎 Booing Tile<br/>
-            <span style={{ fontSize: "14px" }}>(Camel moves -1 space)</span>
-          </button>
-        </div>
-        {placingTile && (
-          <div style={{
-            marginTop: "20px",
-            padding: "15px",
-            backgroundColor: "#FFE66D",
-            borderRadius: "10px",
-            textAlign: "center",
-            fontSize: "18px",
-            fontWeight: "bold",
-          }}>
-            ⚡ Click on any empty track position to place your {placingTile} tile!
-          </div>
-        )}
-      </div>
-
-      <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+      {/* Betting Panel - Now Below the Grid */}
+      <div style={{ maxWidth: "1650px", margin: "0 auto", padding: "0 20px" }}>
         <BettingPanel
           gameState={gameState}
           onBet={(color) => handleAction("betting_ticket", color)}
