@@ -737,6 +737,7 @@ const CamelRaceGame: React.FC = () => {
   const [message, setMessage] = useState<string>("");
   const [actionDialog, setActionDialog] = useState<ActionDialogData | null>(null);
   const [placingTile, setPlacingTile] = useState<"cheering" | "booing" | null>(null);
+  const [waitingForNextTurn, setWaitingForNextTurn] = useState<boolean>(false);
   const botTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Start game
@@ -835,6 +836,7 @@ const CamelRaceGame: React.FC = () => {
 
   const nextPlayer = () => {
     if (!gameState) return;
+    setWaitingForNextTurn(false);
     setGameState(prev => prev ? {
       ...prev,
       currentPlayer: (prev.currentPlayer + 1) % prev.players.length,
@@ -912,7 +914,13 @@ const CamelRaceGame: React.FC = () => {
           });
         }
         
-        setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+        // If bot made the action, wait for manual advance
+        if (currentPlayer.isBot) {
+          setWaitingForNextTurn(true);
+          setMessage(`${currentPlayer.name} bet ${value} EP on ${color.toUpperCase()}! Click "Next Turn" to continue.`);
+        } else {
+          setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+        }
         break;
       }
 
@@ -962,11 +970,13 @@ const CamelRaceGame: React.FC = () => {
               ),
             });
             
-            setMessage(`${currentPlayer.name} placed a ${tileType} tile at position ${randomPosition + 1}!`);
+            setMessage(`${currentPlayer.name} placed a ${tileType} tile at position ${randomPosition + 1}! Click "Next Turn" to continue.`);
+            setWaitingForNextTurn(true);
+          } else {
+            // If no valid positions, just move to next player
+            setTimeout(() => nextPlayer(), 100);
+            return;
           }
-          
-          // Move to next player
-          setTimeout(() => nextPlayer(), 100);
         } else {
           // For human players, set the placing mode
           setPlacingTile(data as "cheering" | "booing");
@@ -1030,7 +1040,13 @@ const CamelRaceGame: React.FC = () => {
           if (newAvailableDice.length === 0) {
             setTimeout(() => endLeg(), 2000);
           } else {
-            setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+            // If bot made the action, wait for manual advance
+            if (currentPlayer.isBot) {
+              setWaitingForNextTurn(true);
+              setMessage(`${currentPlayer.name} rolled ${steps} for ${diceColor.toUpperCase()}! Click "Next Turn" to continue.`);
+            } else {
+              setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+            }
           }
         }
         break;
@@ -1404,7 +1420,7 @@ const CamelRaceGame: React.FC = () => {
   }
 
   const currentPlayer = gameState.players[gameState.currentPlayer];
-  const isLocalPlayerTurn = currentPlayer.isLocal;
+  const isLocalPlayerTurn = currentPlayer.isLocal && !waitingForNextTurn;
 
   return (
     <div style={{
@@ -1508,6 +1524,50 @@ const CamelRaceGame: React.FC = () => {
           margin: "0 auto 25px auto",
         }}>
           {message}
+        </div>
+      )}
+
+      {/* Manual Next Turn Button */}
+      {waitingForNextTurn && (
+        <div style={{
+          maxWidth: "900px",
+          margin: "0 auto 25px auto",
+          textAlign: "center",
+        }}>
+          <button
+            onClick={() => nextPlayer()}
+            style={{
+              padding: "20px 60px",
+              fontSize: "24px",
+              backgroundColor: "#4CAF50",
+              color: "white",
+              border: "4px solid #333",
+              borderRadius: "15px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              transition: "all 0.3s ease",
+              boxShadow: "0 8px 16px rgba(76, 175, 80, 0.6)",
+              animation: "pulse 2s infinite",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.1)";
+              e.currentTarget.style.boxShadow = "0 12px 24px rgba(76, 175, 80, 0.8)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow = "0 8px 16px rgba(76, 175, 80, 0.6)";
+            }}
+          >
+            ▶️ NEXT TURN ▶️
+          </button>
+          <div style={{
+            marginTop: "10px",
+            fontSize: "14px",
+            color: "#666",
+            fontStyle: "italic",
+          }}>
+            Review the bot's action and click to continue
+          </div>
         </div>
       )}
 
