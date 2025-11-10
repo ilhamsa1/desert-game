@@ -1,126 +1,65 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
-// Full Camel Up Game Implementation
+// Full Camel Up Game Implementation with WebRTC and Bot Support
 
-type CamelColor = "red" | "blue" | "green" | "yellow" | "purple" | "white" | "black";
-type DiceColor = "red" | "blue" | "green" | "yellow" | "purple" | "grey";
+type CamelColor = "red" | "blue" | "green" | "yellow" | "purple";
+type DiceColor = "red" | "blue" | "green" | "yellow" | "purple";
 
 type Camel = {
   color: CamelColor;
   position: number;
-  stackOrder: number; // Order in stack (0 = bottom, higher = top)
-  type: "racing" | "crazy";
-};
-
-type SpectatorTile = {
-  position: number;
-  type: "cheering" | "booing"; // +1 or -1
-  owner: string;
-};
-
-type BettingTicket = {
-  camelColor: CamelColor;
-  value: number;
-  playerId: number;
-};
-
-type FinishCard = {
-  camelColor: CamelColor;
-  playerId: number;
-  type: "winner" | "loser";
+  stackOrder: number;
 };
 
 type Player = {
-  id: number;
+  id: string;
   name: string;
   money: number;
   color: string;
-  spectatorTilePlaced: boolean;
-  finishCards: CamelColor[]; // Available finish cards
-  bettingTickets: BettingTicket[]; // Tickets held this leg
-  pyramidTickets: number; // Count of pyramid tickets earned this leg
-  partnershipAvailable: boolean;
-  partnerId: number | null;
+  isBot: boolean;
+  isLocal: boolean;
+  bettingTickets: { camelColor: CamelColor; value: number }[];
+  pyramidTickets: number;
 };
 
 type GameState = {
   camels: Camel[];
   players: Player[];
   currentPlayer: number;
-  
-  // Dice management
-  availableDice: DiceColor[]; // Dice not yet rolled this leg
-  
-  // Betting
-  legBettingStacks: { [key in CamelColor]?: number[] }; // Available tickets per camel
-  legBets: BettingTicket[]; // All bets placed this leg
-  finishBets: FinishCard[]; // Overall winner/loser bets
-  
-  // Board state
-  spectatorTiles: SpectatorTile[];
-  
-  // Game progress
+  availableDice: DiceColor[];
+  legBettingStacks: { [key in CamelColor]?: number[] };
   leg: number;
   gameEnded: boolean;
   winner: CamelColor | null;
-  lastInRacing: CamelColor | null;
+  roomCode?: string;
+  isHost?: boolean;
+};
+
+type ActionDialogData = {
+  type: string;
+  title: string;
+  message: string;
+  camelColor?: CamelColor;
+  value?: number;
 };
 
 const TRACK_LENGTH = 16;
 const RACING_CAMELS: CamelColor[] = ["red", "blue", "green", "yellow", "purple"];
-const CRAZY_CAMELS: CamelColor[] = ["white", "black"];
 
-// Initialize game with proper setup
-const initializeGame = (numPlayers: number): GameState => {
-  const players: Player[] = Array.from({ length: numPlayers }, (_, i) => ({
-    id: i,
-    name: `Player ${i + 1}`,
-    money: 3,
-    color: ["#FF6B6B", "#4ECDC4", "#FFE66D", "#95E1D3", "#F38181", "#AA96DA", "#FCBAD3", "#A8D8EA"][i],
-    spectatorTilePlaced: false,
-    finishCards: [...RACING_CAMELS],
-    bettingTickets: [],
-    pyramidTickets: 0,
-    partnershipAvailable: numPlayers >= 6,
-    partnerId: null,
-  }));
-
-  // Setup initial camel positions by rolling each die once
+// Initialize game
+const initializeGame = (players: Player[]): GameState => {
   const camels: Camel[] = [];
   const positionCounts: { [key: number]: number } = {};
   
   RACING_CAMELS.forEach(color => {
-    const roll = Math.floor(Math.random() * 3) + 1; // 1-3
-    const position = roll - 1; // 0-indexed
+    const roll = Math.floor(Math.random() * 3) + 1;
+    const position = roll - 1;
     const stackOrder = positionCounts[position] || 0;
     positionCounts[position] = stackOrder + 1;
     
-    camels.push({
-      color,
-      position,
-      stackOrder,
-      type: "racing"
-    });
+    camels.push({ color, position, stackOrder });
   });
 
-  // Place crazy camels based on grey die roll
-  const greyRoll = Math.floor(Math.random() * 3) + 1;
-  const crazyPositions = [1, 15, 16][greyRoll - 1];
-  
-  CRAZY_CAMELS.forEach((color, idx) => {
-    const position = crazyPositions === 16 ? 15 : crazyPositions; // Adjust for 0-indexed
-    const stackOrder = positionCounts[position] || 0;
-    positionCounts[position] = stackOrder + 1;
-    
-    camels.push({
-      color,
-      position,
-      stackOrder: stackOrder + idx,
-      type: "crazy"
-    });
-  });
-
-  // Initialize betting stacks
   const legBettingStacks: { [key in CamelColor]?: number[] } = {};
   RACING_CAMELS.forEach(color => {
     legBettingStacks[color] = [5, 3, 2];
@@ -130,72 +69,35 @@ const initializeGame = (numPlayers: number): GameState => {
     camels,
     players,
     currentPlayer: 0,
-    availableDice: ["red", "blue", "green", "yellow", "purple", "grey"],
+    availableDice: ["red", "blue", "green", "yellow", "purple"],
     legBettingStacks,
-    legBets: [],
-    finishBets: [],
-    spectatorTiles: [],
     leg: 1,
     gameEnded: false,
     winner: null,
-    lastInRacing: null,
   };
 };
 
-// Get current race standings
+// Get leaderboard
 const getLeaderboard = (camels: Camel[]): Camel[] => {
-  const racingCamels = camels.filter(c => c.type === "racing");
-  return [...racingCamels].sort((a, b) => {
+  return [...camels].sort((a, b) => {
     if (a.position !== b.position) {
-      return b.position - a.position; // Higher position is better
+      return b.position - a.position;
     }
-    return b.stackOrder - a.stackOrder; // Higher stack is better
+    return b.stackOrder - a.stackOrder;
   });
 };
 
-// Get last place in racing
-const getLastPlace = (camels: Camel[]): Camel => {
-  const racingCamels = camels.filter(c => c.type === "racing");
-  return [...racingCamels].sort((a, b) => {
-    if (a.position !== b.position) {
-      return a.position - b.position; // Lower position is worse
-    }
-    return a.stackOrder - b.stackOrder; // Lower stack is worse
-  })[0];
-};
-
-// Move a camel and its stack
-const moveCamel = (
-  camels: Camel[],
-  camelColor: CamelColor,
-  steps: number,
-  spectatorTiles: SpectatorTile[]
-): Camel[] => {
+// Move camel
+const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number): Camel[] => {
   const selectedCamel = camels.find(c => c.color === camelColor);
   if (!selectedCamel) return camels;
 
-  const isCrazy = selectedCamel.type === "crazy";
-  const direction = isCrazy ? -1 : 1; // Crazy camels go counterclockwise (backward)
-
-  // Find all camels on the same position
   const camelsOnSamePosition = camels.filter(c => c.position === selectedCamel.position);
-  
-  // Find all camels that will move (selected camel and all above it)
   const movingCamels = camelsOnSamePosition.filter(c => c.stackOrder >= selectedCamel.stackOrder);
 
-  // Calculate new position
-  let newPosition = selectedCamel.position + (steps * direction);
-
-  // Check for spectator tile at the new position
-  const spectatorTile = spectatorTiles.find(tile => tile.position === newPosition);
-  if (spectatorTile) {
-    newPosition += spectatorTile.type === "cheering" ? 1 : -1;
-  }
-
-  // Ensure position stays within bounds
+  let newPosition = selectedCamel.position + steps;
   newPosition = Math.max(0, Math.min(newPosition, TRACK_LENGTH + 2));
 
-  // Find camels already at destination
   const camelsAtDestination = camels.filter(
     c => c.position === newPosition && !movingCamels.includes(c)
   );
@@ -204,60 +106,45 @@ const moveCamel = (
     ? Math.max(...camelsAtDestination.map(c => c.stackOrder))
     : -1;
 
-  // Move the camels
   return camels.map(camel => {
     const movingIndex = movingCamels.findIndex(c => c.color === camel.color);
     
     if (movingIndex >= 0) {
-      // This camel is moving
       const relativeStackPosition = camel.stackOrder - selectedCamel.stackOrder;
       return {
         ...camel,
         position: newPosition,
         stackOrder: maxStackAtDestination + 1 + relativeStackPosition,
       };
-    } else if (camel.position === selectedCamel.position && camel.stackOrder < selectedCamel.stackOrder) {
-      // Camels below the moved camel stay but their stack order doesn't change
-      return camel;
     }
     
     return camel;
   });
 };
 
-// Check if game has ended
-const checkGameEnd = (camels: Camel[]): { ended: boolean; winner: CamelColor | null; lastPlace: CamelColor | null } => {
-  const racingCamels = camels.filter(c => c.type === "racing");
-  
-  // Check if any racing camel crossed the finish line
-  const winnersOverLine = racingCamels.filter(c => c.position >= TRACK_LENGTH);
+// Check if game ended
+const checkGameEnd = (camels: Camel[]): { ended: boolean; winner: CamelColor | null } => {
+  const winnersOverLine = camels.filter(c => c.position >= TRACK_LENGTH);
   
   if (winnersOverLine.length > 0) {
     const leaderboard = getLeaderboard(camels);
-    const winner = leaderboard[0].color;
-    const lastPlace = getLastPlace(camels).color;
-    return { ended: true, winner, lastPlace };
+    return { ended: true, winner: leaderboard[0].color };
   }
   
-  return { ended: false, winner: null, lastPlace: null };
+  return { ended: false, winner: null };
 };
 
 // Score leg bets
-const scoreLegBets = (
-  players: Player[],
-  _legBets: BettingTicket[],
-  leaderboard: Camel[]
-): Player[] => {
+const scoreLegBets = (players: Player[], leaderboard: Camel[]): Player[] => {
   const firstPlace = leaderboard[0];
   const secondPlace = leaderboard[1];
 
   return players.map(player => {
     let earnings = 0;
     
-    // Score betting tickets
     player.bettingTickets.forEach(ticket => {
       if (ticket.camelColor === firstPlace.color) {
-        earnings += 5;
+        earnings += ticket.value;
       } else if (ticket.camelColor === secondPlace.color) {
         earnings += 1;
       } else {
@@ -265,100 +152,150 @@ const scoreLegBets = (
       }
     });
 
-    // Score pyramid tickets
     earnings += player.pyramidTickets;
-
-    // Apply partnership bonuses
-    if (player.partnerId !== null) {
-      const partner = players[player.partnerId];
-      partner.bettingTickets.forEach(ticket => {
-        if (ticket.camelColor === firstPlace.color) {
-          earnings += 5;
-        } else if (ticket.camelColor === secondPlace.color) {
-          earnings += 1;
-        } else {
-          earnings -= 1;
-        }
-      });
-    }
 
     return {
       ...player,
       money: Math.max(0, player.money + earnings),
       bettingTickets: [],
       pyramidTickets: 0,
-      spectatorTilePlaced: false,
-      partnerId: null,
-      partnershipAvailable: player.partnershipAvailable,
     };
   });
 };
 
-// Score final bets
-const scoreFinalBets = (
-  players: Player[],
-  finishBets: FinishCard[],
-  winner: CamelColor,
-  loser: CamelColor
-): Player[] => {
-  const payouts = [8, 5, 3, 2, 1];
+// Bot AI - Make decision
+const makeBotDecision = (gameState: GameState): { action: string; data?: any } => {
+  const availableActions: Array<{ action: string; data?: any; weight: number }> = [];
+
+  // Consider betting tickets
+  RACING_CAMELS.forEach(color => {
+    const stack = gameState.legBettingStacks[color] || [];
+    if (stack.length > 0) {
+      const value = stack[stack.length - 1];
+      // Higher value = higher weight
+      availableActions.push({ action: "betting_ticket", data: color, weight: value * 2 });
+    }
+  });
+
+  // Consider rolling dice (always attractive)
+  if (gameState.availableDice.length > 0) {
+    availableActions.push({ action: "pyramid_ticket", weight: 10 });
+  }
+
+  // Weighted random selection
+  const totalWeight = availableActions.reduce((sum, a) => sum + a.weight, 0);
+  let random = Math.random() * totalWeight;
   
-  // Process winner bets
-  const winnerBets = finishBets.filter(b => b.type === "winner");
-  const correctWinnerBets = winnerBets.filter(b => b.camelColor === winner);
-  const incorrectWinnerBets = winnerBets.filter(b => b.camelColor !== winner);
+  for (const action of availableActions) {
+    random -= action.weight;
+    if (random <= 0) {
+      return { action: action.action, data: action.data };
+    }
+  }
 
-  // Process loser bets
-  const loserBets = finishBets.filter(b => b.type === "loser");
-  const correctLoserBets = loserBets.filter(b => b.camelColor === loser);
-  const incorrectLoserBets = loserBets.filter(b => b.camelColor !== loser);
-
-  return players.map(player => {
-    let earnings = 0;
-
-    // Score correct winner bets
-    const playerCorrectWinnerBets = correctWinnerBets.filter(b => b.playerId === player.id);
-    playerCorrectWinnerBets.forEach((_, idx) => {
-      earnings += payouts[Math.min(idx, payouts.length - 1)];
-    });
-
-    // Score incorrect winner bets
-    const playerIncorrectWinnerBets = incorrectWinnerBets.filter(b => b.playerId === player.id);
-    earnings -= playerIncorrectWinnerBets.length;
-
-    // Score correct loser bets
-    const playerCorrectLoserBets = correctLoserBets.filter(b => b.playerId === player.id);
-    playerCorrectLoserBets.forEach((_, idx) => {
-      earnings += payouts[Math.min(idx, payouts.length - 1)];
-    });
-
-    // Score incorrect loser bets
-    const playerIncorrectLoserBets = incorrectLoserBets.filter(b => b.playerId === player.id);
-    earnings -= playerIncorrectLoserBets.length;
-
-    return {
-      ...player,
-      money: Math.max(0, player.money + earnings),
-    };
-  });
+  // Fallback to rolling dice
+  return { action: "pyramid_ticket" };
 };
 
-// Components
+// Modal Dialog Component
+const ActionDialog: React.FC<{
+  data: ActionDialogData | null;
+  onClose: () => void;
+}> = ({ data, onClose }) => {
+  if (!data) return null;
 
-const Track: React.FC<{
-  camels: Camel[];
-  spectatorTiles: SpectatorTile[];
-  onTileClick?: (position: number) => void;
-  clickablePositions?: boolean;
-}> = ({ camels, spectatorTiles, onTileClick, clickablePositions }) => {
-  const trackWidth = 1000;
-  const trackHeight = 500;
+  return (
+    <div style={{
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0,0,0,0.7)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1000,
+    }}>
+      <div style={{
+        backgroundColor: "#FFF",
+        borderRadius: "20px",
+        padding: "40px",
+        maxWidth: "500px",
+        border: "4px solid #8B4513",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+        animation: "slideIn 0.3s ease-out",
+      }}>
+        <h2 style={{ 
+          color: "#8B4513", 
+          marginBottom: "20px",
+          textAlign: "center",
+          fontSize: "28px",
+        }}>
+          {data.title}
+        </h2>
+        <p style={{ 
+          fontSize: "18px", 
+          marginBottom: "30px",
+          textAlign: "center",
+          color: "#333",
+        }}>
+          {data.message}
+        </p>
+        {data.camelColor && (
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            marginBottom: "20px",
+          }}>
+            <div style={{
+              width: "80px",
+              height: "60px",
+              backgroundColor: data.camelColor,
+              border: "3px solid #333",
+              borderRadius: "20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "30px",
+            }}>
+              🐪
+            </div>
+          </div>
+        )}
+        <button
+          onClick={onClose}
+          style={{
+            width: "100%",
+            padding: "15px",
+            fontSize: "20px",
+            backgroundColor: "#4CAF50",
+            color: "white",
+            border: "3px solid #333",
+            borderRadius: "10px",
+            cursor: "pointer",
+            fontWeight: "bold",
+            transition: "transform 0.2s",
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"}
+          onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Track Component
+const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
+  const trackWidth = 900;
+  const trackHeight = 450;
   const totalPositions = TRACK_LENGTH;
   const positionPerSide = totalPositions / 4;
 
   const getCamelPosition = (position: number) => {
     let displayPosition = position;
-    
     if (displayPosition < 0) displayPosition = 0;
     if (displayPosition >= totalPositions) displayPosition = totalPositions - 1;
 
@@ -382,28 +319,21 @@ const Track: React.FC<{
   };
 
   return (
-    <div
-      style={{
-        position: "relative",
-        width: `${trackWidth}px`,
-        height: `${trackHeight}px`,
-        margin: "20px auto",
-        border: "4px solid #8B4513",
-        backgroundColor: "#F4A460",
-        borderRadius: "10px",
-        boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
-      }}
-    >
-      {/* Track positions */}
+    <div style={{
+      position: "relative",
+      width: `${trackWidth}px`,
+      height: `${trackHeight}px`,
+      margin: "0 auto",
+      border: "5px solid #8B4513",
+      backgroundColor: "#F4A460",
+      borderRadius: "15px",
+      boxShadow: "0 8px 16px rgba(0,0,0,0.3)",
+    }}>
       {Array.from({ length: totalPositions }).map((_, index) => {
         const { x, y } = getCamelPosition(index);
-        const spectatorTile = spectatorTiles.find(tile => tile.position === index);
-        const hasCamel = camels.some(c => c.position === index);
-
         return (
           <div
             key={index}
-            onClick={() => clickablePositions && onTileClick?.(index)}
             style={{
               position: "absolute",
               left: `${x + 15}px`,
@@ -419,33 +349,13 @@ const Track: React.FC<{
               fontSize: "12px",
               fontWeight: "bold",
               color: "#333",
-              cursor: clickablePositions && !hasCamel && !spectatorTile ? "pointer" : "default",
-              transition: "transform 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              if (clickablePositions && !hasCamel && !spectatorTile) {
-                e.currentTarget.style.transform = "scale(1.1)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
             }}
           >
-            {index + 1}
-            {spectatorTile && (
-              <div style={{
-                position: "absolute",
-                bottom: "2px",
-                fontSize: "20px"
-              }}>
-                {spectatorTile.type === "cheering" ? "👍" : "👎"}
-              </div>
-            )}
+            {index === 0 ? "START" : index + 1}
           </div>
         );
       })}
       
-      {/* Camels */}
       {camels.map((camel) => {
         const { x, y } = getCamelPosition(camel.position);
         return (
@@ -454,24 +364,24 @@ const Track: React.FC<{
             style={{
               position: "absolute",
               left: `${x + 15}px`,
-              top: `${y - 5 - (camel.stackOrder * 35)}px`,
+              top: `${y - 5 - (camel.stackOrder * 40)}px`,
               width: "60px",
-              height: "40px",
+              height: "45px",
               backgroundColor: camel.color,
               border: "3px solid #333",
               borderRadius: "20px 20px 10px 10px",
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              color: camel.color === 'white' || camel.color === 'yellow' ? 'black' : 'white',
+              color: camel.color === 'yellow' ? 'black' : 'white',
               fontWeight: "bold",
-              fontSize: "10px",
+              fontSize: "24px",
               zIndex: 10 + camel.stackOrder,
-              transition: "all 0.6s ease-in-out",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+              transition: "all 0.8s ease-in-out",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.4)",
             }}
           >
-            {camel.type === "crazy" ? "🔙" : "🐪"}
+            🐪
           </div>
         );
       })}
@@ -479,49 +389,63 @@ const Track: React.FC<{
   );
 };
 
-const DicePyramid: React.FC<{
+// Centered Dice Roller
+const CenteredDiceRoller: React.FC<{
   availableDice: DiceColor[];
-}> = ({ availableDice }) => {
-  const allDice: DiceColor[] = ["red", "blue", "green", "yellow", "purple", "grey"];
+  onRoll: () => void;
+  disabled: boolean;
+  currentPlayerName: string;
+}> = ({ availableDice, onRoll, disabled, currentPlayerName }) => {
+  const allDice: DiceColor[] = ["red", "blue", "green", "yellow", "purple"];
   
   return (
     <div style={{
-      padding: "20px",
+      position: "relative",
+      margin: "30px auto",
+      padding: "40px",
       backgroundColor: "#8B4513",
-      borderRadius: "15px",
-      border: "4px solid #654321",
-      boxShadow: "0 6px 12px rgba(0,0,0,0.4)",
+      borderRadius: "20px",
+      border: "5px solid #654321",
+      boxShadow: "0 10px 20px rgba(0,0,0,0.5)",
       textAlign: "center",
-      margin: "20px auto",
-      maxWidth: "450px"
+      maxWidth: "700px",
     }}>
-      <h3 style={{ color: "#FFE66D", marginBottom: "15px" }}>🎲 Dice Pyramid 🎲</h3>
+      <h2 style={{ 
+        color: "#FFE66D", 
+        marginBottom: "20px",
+        fontSize: "32px",
+        textShadow: "2px 2px 4px rgba(0,0,0,0.5)",
+      }}>
+        🎲 Dice Pyramid 🎲
+      </h2>
+      
       <div style={{
         display: "flex",
         justifyContent: "center",
-        gap: "10px",
-        flexWrap: "wrap"
+        gap: "15px",
+        flexWrap: "wrap",
+        marginBottom: "30px",
       }}>
         {allDice.map(color => {
           const isAvailable = availableDice.includes(color);
-          const displayColor = color === "grey" ? "#808080" : color;
           return (
             <div
               key={color}
               style={{
-                width: "50px",
-                height: "50px",
-                backgroundColor: isAvailable ? displayColor : "#333",
-                border: `3px solid ${isAvailable ? "#FFF" : "#666"}`,
-                borderRadius: "8px",
+                width: "70px",
+                height: "70px",
+                backgroundColor: isAvailable ? color : "#333",
+                border: `4px solid ${isAvailable ? "#FFF" : "#666"}`,
+                borderRadius: "12px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "20px",
-                color: (color === "yellow" || color === "grey") ? "black" : "white",
+                fontSize: "32px",
+                color: color === "yellow" ? "black" : "white",
                 opacity: isAvailable ? 1 : 0.3,
                 transition: "all 0.3s ease",
-                boxShadow: isAvailable ? "0 2px 4px rgba(255,255,255,0.3)" : "inset 0 2px 4px rgba(0,0,0,0.5)"
+                boxShadow: isAvailable ? "0 4px 8px rgba(255,255,255,0.3)" : "inset 0 4px 8px rgba(0,0,0,0.5)",
+                transform: isAvailable ? "scale(1)" : "scale(0.9)",
               }}
             >
               {isAvailable ? "🎲" : "✓"}
@@ -529,263 +453,245 @@ const DicePyramid: React.FC<{
           );
         })}
       </div>
-      <div style={{ color: "#FFE66D", marginTop: "10px", fontSize: "14px" }}>
-        Remaining: {availableDice.length}/6
-      </div>
-    </div>
-  );
-};
 
-const PlayerPanel: React.FC<{ 
-  players: Player[];
-  currentPlayer: number;
-}> = ({ players, currentPlayer }) => {
-  return (
-    <div style={{ 
-      marginTop: "20px",
-      padding: "15px",
-      backgroundColor: "#f9f9f9",
-      borderRadius: "10px",
-      border: "2px solid #ddd"
-    }}>
-      <h3>Players</h3>
-      <div style={{ display: "flex", gap: "15px", flexWrap: "wrap" }}>
-        {players.map((player, idx) => (
-          <div
-            key={player.id}
-            style={{
-              padding: "15px",
-              backgroundColor: idx === currentPlayer ? player.color : "#fff",
-              border: `3px solid ${player.color}`,
-              borderRadius: "8px",
-              fontWeight: idx === currentPlayer ? "bold" : "normal",
-              minWidth: "150px",
-            }}
-          >
-            <div style={{ fontSize: "16px" }}>{player.name}</div>
-            <div style={{ fontSize: "18px", marginTop: "5px" }}>💰 {player.money} EP</div>
-            <div style={{ fontSize: "12px", marginTop: "5px" }}>
-              Tickets: {player.bettingTickets.length} | Pyramid: {player.pyramidTickets}
-            </div>
-            {player.partnerId !== null && (
-              <div style={{ fontSize: "12px", color: "#FF1493", marginTop: "3px" }}>
-                🤝 Partner: {players[player.partnerId].name}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const ActionPanel: React.FC<{
-  gameState: GameState;
-  onAction: (action: string, data?: any) => void;
-}> = ({ gameState, onAction }) => {
-  const currentPlayer = gameState.players[gameState.currentPlayer];
-  
-  return (
-    <div style={{
-      marginTop: "20px",
-      padding: "20px",
-      backgroundColor: "#FFF",
-      borderRadius: "10px",
-      border: "3px solid #8B4513",
-    }}>
-      <h2 style={{ textAlign: "center", color: "#8B4513" }}>
-        Current Turn: {currentPlayer.name}
-      </h2>
-      
-      <div style={{ marginTop: "20px" }}>
-        <h3>Action 1: Take Betting Ticket</h3>
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          {RACING_CAMELS.map(color => {
-            const stack = gameState.legBettingStacks[color] || [];
-            const nextValue = stack[stack.length - 1];
-            
-            return (
-              <button
-                key={color}
-                onClick={() => onAction("betting_ticket", color)}
-                disabled={stack.length === 0}
-                style={{
-                  padding: "12px 20px",
-                  fontSize: "14px",
-                  backgroundColor: color,
-                  color: color === "yellow" ? "black" : "white",
-                  border: "3px solid #333",
-                  borderRadius: "8px",
-                  cursor: stack.length > 0 ? "pointer" : "not-allowed",
-                  fontWeight: "bold",
-                  opacity: stack.length > 0 ? 1 : 0.4,
-                }}
-              >
-                {color.toUpperCase()}<br/>
-                {stack.length > 0 ? `+${nextValue} EP` : "None"}
-              </button>
-            );
-          })}
-        </div>
+      <div style={{ 
+        color: "#FFE66D", 
+        marginBottom: "25px", 
+        fontSize: "18px",
+        fontWeight: "bold",
+      }}>
+        Remaining: {availableDice.length}/5 dice
       </div>
 
-      <div style={{ marginTop: "20px" }}>
-        <h3>Action 2: Place Spectator Tile</h3>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            onClick={() => onAction("spectator_tile", "cheering")}
-            disabled={currentPlayer.spectatorTilePlaced}
-            style={{
-              padding: "12px 20px",
-              fontSize: "16px",
-              backgroundColor: "#4CAF50",
-              color: "white",
-              border: "3px solid #333",
-              borderRadius: "8px",
-              cursor: currentPlayer.spectatorTilePlaced ? "not-allowed" : "pointer",
-              opacity: currentPlayer.spectatorTilePlaced ? 0.4 : 1,
-            }}
-          >
-            👍 Cheering (+1)
-          </button>
-          <button
-            onClick={() => onAction("spectator_tile", "booing")}
-            disabled={currentPlayer.spectatorTilePlaced}
-            style={{
-              padding: "12px 20px",
-              fontSize: "16px",
-              backgroundColor: "#F44336",
-              color: "white",
-              border: "3px solid #333",
-              borderRadius: "8px",
-              cursor: currentPlayer.spectatorTilePlaced ? "not-allowed" : "pointer",
-              opacity: currentPlayer.spectatorTilePlaced ? 0.4 : 1,
-            }}
-          >
-            👎 Booing (-1)
-          </button>
-        </div>
-      </div>
+      <button
+        onClick={onRoll}
+        disabled={disabled || availableDice.length === 0}
+        style={{
+          padding: "20px 50px",
+          fontSize: "24px",
+          backgroundColor: disabled || availableDice.length === 0 ? "#666" : "#FF9800",
+          color: "white",
+          border: "4px solid #333",
+          borderRadius: "15px",
+          cursor: disabled || availableDice.length === 0 ? "not-allowed" : "pointer",
+          fontWeight: "bold",
+          transition: "all 0.3s ease",
+          boxShadow: disabled || availableDice.length === 0 ? "none" : "0 6px 12px rgba(0,0,0,0.3)",
+          transform: disabled || availableDice.length === 0 ? "scale(1)" : "scale(1.05)",
+        }}
+        onMouseEnter={(e) => {
+          if (!disabled && availableDice.length > 0) {
+            e.currentTarget.style.transform = "scale(1.1)";
+            e.currentTarget.style.boxShadow = "0 8px 16px rgba(255, 152, 0, 0.6)";
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!disabled && availableDice.length > 0) {
+            e.currentTarget.style.transform = "scale(1.05)";
+            e.currentTarget.style.boxShadow = "0 6px 12px rgba(0,0,0,0.3)";
+          }
+        }}
+      >
+        🎲 ROLL DICE 🎲
+      </button>
 
-      <div style={{ marginTop: "20px" }}>
-        <h3>Action 3: Take Pyramid Ticket & Roll Die</h3>
-        <button
-          onClick={() => onAction("pyramid_ticket")}
-          disabled={gameState.availableDice.length === 0}
-          style={{
-            padding: "15px 30px",
-            fontSize: "18px",
-            backgroundColor: "#FF9800",
-            color: "white",
-            border: "3px solid #333",
-            borderRadius: "8px",
-            cursor: gameState.availableDice.length > 0 ? "pointer" : "not-allowed",
-            fontWeight: "bold",
-            opacity: gameState.availableDice.length > 0 ? 1 : 0.4,
-          }}
-        >
-          🎲 Roll Die (+1 EP)
-        </button>
-      </div>
-
-      <div style={{ marginTop: "20px" }}>
-        <h3>Action 4: Bet on Overall Winner/Loser</h3>
-        <div>
-          <h4>Overall Winner:</h4>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
-            {RACING_CAMELS.filter(c => currentPlayer.finishCards.includes(c)).map(color => (
-              <button
-                key={`winner-${color}`}
-                onClick={() => onAction("finish_bet", { color, type: "winner" })}
-                style={{
-                  padding: "10px 15px",
-                  backgroundColor: color,
-                  color: color === "yellow" ? "black" : "white",
-                  border: "2px solid #333",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
-              >
-                {color.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          
-          <h4>Overall Loser:</h4>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {RACING_CAMELS.filter(c => currentPlayer.finishCards.includes(c)).map(color => (
-              <button
-                key={`loser-${color}`}
-                onClick={() => onAction("finish_bet", { color, type: "loser" })}
-                style={{
-                  padding: "10px 15px",
-                  backgroundColor: color,
-                  color: color === "yellow" ? "black" : "white",
-                  border: "2px solid #333",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
-              >
-                {color.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {gameState.players.length >= 6 && currentPlayer.partnershipAvailable && (
-        <div style={{ marginTop: "20px" }}>
-          <h3>Action 5: Enter Partnership (6+ players)</h3>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {gameState.players
-              .filter(p => p.id !== currentPlayer.id && p.partnershipAvailable && p.partnerId === null)
-              .map(partner => (
-                <button
-                  key={partner.id}
-                  onClick={() => onAction("partnership", partner.id)}
-                  style={{
-                    padding: "10px 15px",
-                    backgroundColor: partner.color,
-                    color: "white",
-                    border: "2px solid #333",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  🤝 Partner with {partner.name}
-                </button>
-              ))}
-          </div>
+      {availableDice.length > 0 && (
+        <div style={{ 
+          marginTop: "20px", 
+          color: "#FFE66D",
+          fontSize: "16px",
+        }}>
+          {currentPlayerName}'s turn
         </div>
       )}
     </div>
   );
 };
 
-const Leaderboard: React.FC<{ camels: Camel[] }> = ({ camels }) => {
-  const leaderboard = getLeaderboard(camels);
+// Enhanced Leaderboard
+const EnhancedLeaderboard: React.FC<{ 
+  players: Player[];
+  camels: Camel[];
+}> = ({ players, camels }) => {
+  const sortedPlayers = [...players].sort((a, b) => b.money - a.money);
+  const camelLeaderboard = getLeaderboard(camels);
   
   return (
-    <div style={{ margin: "20px 0", textAlign: "center" }}>
-      <h2 style={{ color: "#8B4513" }}>Race Leaderboard</h2>
-      <div style={{ display: "flex", justifyContent: "center", gap: "10px", flexWrap: "wrap" }}>
-        {leaderboard.map((camel, index) => (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "30px",
+      margin: "30px auto",
+      maxWidth: "1200px",
+    }}>
+      {/* Player Leaderboard */}
+      <div style={{
+        padding: "25px",
+        backgroundColor: "#FFF",
+        borderRadius: "15px",
+        border: "4px solid #8B4513",
+        boxShadow: "0 6px 12px rgba(0,0,0,0.2)",
+      }}>
+        <h2 style={{ 
+          textAlign: "center", 
+          color: "#8B4513",
+          marginBottom: "20px",
+          fontSize: "28px",
+        }}>
+          💰 Player Standings 💰
+        </h2>
+        {sortedPlayers.map((player, index) => (
+          <div
+            key={player.id}
+            style={{
+              padding: "15px 20px",
+              marginBottom: "12px",
+              background: `linear-gradient(135deg, ${player.color} 0%, ${player.color}dd 100%)`,
+              borderRadius: "12px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontWeight: "bold",
+              fontSize: "18px",
+              border: "3px solid #333",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+              color: "#FFF",
+              textShadow: "1px 1px 2px rgba(0,0,0,0.5)",
+            }}
+          >
+            <span>
+              <span style={{ 
+                fontSize: "24px", 
+                marginRight: "10px",
+              }}>
+                {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `${index + 1}.`}
+              </span>
+              {player.name} {player.isBot && "🤖"}
+            </span>
+            <span style={{ fontSize: "22px" }}>
+              💰 {player.money} EP
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Camel Race Leaderboard */}
+      <div style={{
+        padding: "25px",
+        backgroundColor: "#FFF",
+        borderRadius: "15px",
+        border: "4px solid #8B4513",
+        boxShadow: "0 6px 12px rgba(0,0,0,0.2)",
+      }}>
+        <h2 style={{ 
+          textAlign: "center", 
+          color: "#8B4513",
+          marginBottom: "20px",
+          fontSize: "28px",
+        }}>
+          🏁 Race Positions 🏁
+        </h2>
+        {camelLeaderboard.map((camel, index) => (
           <div
             key={camel.color}
             style={{
-              padding: "12px 20px",
-              backgroundColor: camel.color,
-              color: camel.color === "yellow" || camel.color === "white" ? "black" : "white",
-              borderRadius: "8px",
+              padding: "15px 20px",
+              marginBottom: "12px",
+              background: `linear-gradient(135deg, ${camel.color} 0%, ${camel.color}dd 100%)`,
+              borderRadius: "12px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
               fontWeight: "bold",
+              fontSize: "18px",
               border: "3px solid #333",
-              fontSize: "16px",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+              color: camel.color === "yellow" ? "#000" : "#FFF",
+              textShadow: camel.color === "yellow" ? "none" : "1px 1px 2px rgba(0,0,0,0.5)",
             }}
           >
-            {index + 1}. {camel.color.toUpperCase()}<br/>
-            <span style={{ fontSize: "12px" }}>Pos: {camel.position + 1}</span>
+            <span>
+              <span style={{ fontSize: "24px", marginRight: "10px" }}>
+                {index + 1}.
+              </span>
+              🐪 {camel.color.toUpperCase()}
+            </span>
+            <span style={{ fontSize: "18px" }}>
+              Position: {camel.position + 1}
+            </span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+};
+
+// Betting Panel
+const BettingPanel: React.FC<{
+  gameState: GameState;
+  onBet: (color: CamelColor) => void;
+  disabled: boolean;
+}> = ({ gameState, onBet, disabled }) => {
+  return (
+    <div style={{
+      margin: "20px auto",
+      padding: "25px",
+      backgroundColor: "#FFF",
+      borderRadius: "15px",
+      border: "3px solid #8B4513",
+      maxWidth: "900px",
+    }}>
+      <h3 style={{ 
+        textAlign: "center", 
+        color: "#8B4513",
+        marginBottom: "20px",
+        fontSize: "24px",
+      }}>
+        Place Your Bet
+      </h3>
+      <div style={{ 
+        display: "flex", 
+        gap: "15px", 
+        flexWrap: "wrap",
+        justifyContent: "center",
+      }}>
+        {RACING_CAMELS.map(color => {
+          const stack = gameState.legBettingStacks[color] || [];
+          const nextValue = stack[stack.length - 1];
+          const available = stack.length > 0;
+          
+          return (
+            <button
+              key={color}
+              onClick={() => onBet(color)}
+              disabled={disabled || !available}
+              style={{
+                padding: "20px 30px",
+                fontSize: "18px",
+                backgroundColor: available ? color : "#ccc",
+                color: color === "yellow" ? "black" : "white",
+                border: "4px solid #333",
+                borderRadius: "12px",
+                cursor: disabled || !available ? "not-allowed" : "pointer",
+                fontWeight: "bold",
+                opacity: available ? 1 : 0.5,
+                transition: "transform 0.2s",
+                minWidth: "150px",
+              }}
+              onMouseEnter={(e) => {
+                if (!disabled && available) {
+                  e.currentTarget.style.transform = "scale(1.1)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "scale(1)";
+              }}
+            >
+              🐪 {color.toUpperCase()}<br/>
+              {available ? `+${nextValue} EP` : "Sold Out"}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -793,16 +699,74 @@ const Leaderboard: React.FC<{ camels: Camel[] }> = ({ camels }) => {
 
 // Main Game Component
 const CamelRaceGame: React.FC = () => {
-  const [numPlayers, setNumPlayers] = useState<number | null>(null);
+  const [setupMode, setSetupMode] = useState<"menu" | "room" | "game">("menu");
+  const [playerName, setPlayerName] = useState("");
+  const [numBots, setNumBots] = useState(2);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [message, setMessage] = useState<string>("");
-  const [placingTile, setPlacingTile] = useState<"cheering" | "booing" | null>(null);
+  const [actionDialog, setActionDialog] = useState<ActionDialogData | null>(null);
+  const botTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const startNewGame = (players: number) => {
-    setNumPlayers(players);
-    setGameState(initializeGame(players));
-    setMessage("Game started! Choose an action.");
+  // Start game
+  const startGame = (mode: "solo" | "host" | "join") => {
+    const localPlayerId = `player-${Date.now()}`;
+    const players: Player[] = [
+      {
+        id: localPlayerId,
+        name: playerName || "Player 1",
+        money: 3,
+        color: "#FF6B6B",
+        isBot: false,
+        isLocal: true,
+        bettingTickets: [],
+        pyramidTickets: 0,
+      }
+    ];
+
+    // Add bots
+    for (let i = 0; i < numBots; i++) {
+      players.push({
+        id: `bot-${i}`,
+        name: `Bot ${i + 1}`,
+        money: 3,
+        color: ["#4ECDC4", "#FFE66D", "#95E1D3", "#F38181", "#AA96DA"][i % 5],
+        isBot: true,
+        isLocal: false,
+        bettingTickets: [],
+        pyramidTickets: 0,
+      });
+    }
+
+    const newGameState = initializeGame(players);
+    if (mode === "host") {
+      newGameState.roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      newGameState.isHost = true;
+    }
+
+    setGameState(newGameState);
+    setSetupMode("game");
+    setMessage("Game started! Place your bets or roll the dice.");
   };
+
+  // Handle bot turn
+  useEffect(() => {
+    if (!gameState || gameState.gameEnded || setupMode !== "game") return;
+
+    const currentPlayer = gameState.players[gameState.currentPlayer];
+    
+    if (currentPlayer.isBot) {
+      if (botTimerRef.current) clearTimeout(botTimerRef.current);
+      
+      botTimerRef.current = setTimeout(() => {
+        const decision = makeBotDecision(gameState);
+        handleAction(decision.action, decision.data, true);
+      }, 1500);
+    }
+
+    return () => {
+      if (botTimerRef.current) clearTimeout(botTimerRef.current);
+    };
+  }, [gameState?.currentPlayer, gameState?.availableDice.length]);
 
   const nextPlayer = () => {
     if (!gameState) return;
@@ -816,9 +780,8 @@ const CamelRaceGame: React.FC = () => {
     if (!gameState) return;
 
     const leaderboard = getLeaderboard(gameState.camels);
-    const updatedPlayers = scoreLegBets(gameState.players, gameState.legBets, leaderboard);
+    const updatedPlayers = scoreLegBets(gameState.players, leaderboard);
 
-    // Reset for next leg
     const legBettingStacks: { [key in CamelColor]?: number[] } = {};
     RACING_CAMELS.forEach(color => {
       legBettingStacks[color] = [5, 3, 2];
@@ -826,22 +789,16 @@ const CamelRaceGame: React.FC = () => {
 
     setGameState({
       ...gameState,
-      players: updatedPlayers.map(p => ({
-        ...p,
-        spectatorTilePlaced: false,
-        partnershipAvailable: gameState.players.length >= 6,
-      })),
+      players: updatedPlayers,
       leg: gameState.leg + 1,
-      availableDice: ["red", "blue", "green", "yellow", "purple", "grey"],
+      availableDice: ["red", "blue", "green", "yellow", "purple"],
       legBettingStacks,
-      legBets: [],
-      spectatorTiles: [],
     });
 
     setMessage(`Leg ${gameState.leg} ended! Starting Leg ${gameState.leg + 1}`);
   };
 
-  const handleAction = (action: string, data?: any) => {
+  const handleAction = (action: string, data?: any, skipDialog = false) => {
     if (!gameState || gameState.gameEnded) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
@@ -855,10 +812,9 @@ const CamelRaceGame: React.FC = () => {
         const value = stack[stack.length - 1];
         const newStack = stack.slice(0, -1);
 
-        const ticket: BettingTicket = {
+        const ticket = {
           camelColor: color,
           value,
-          playerId: currentPlayer.id,
         };
 
         setGameState({
@@ -867,7 +823,6 @@ const CamelRaceGame: React.FC = () => {
             ...gameState.legBettingStacks,
             [color]: newStack,
           },
-          legBets: [...gameState.legBets, ticket],
           players: gameState.players.map(p =>
             p.id === currentPlayer.id
               ? { ...p, bettingTickets: [...p.bettingTickets, ticket] }
@@ -875,185 +830,79 @@ const CamelRaceGame: React.FC = () => {
           ),
         });
 
-        setMessage(`${currentPlayer.name} took a ${value} EP betting ticket for ${color.toUpperCase()}!`);
-        nextPlayer();
-        break;
-      }
-
-      case "spectator_tile": {
-        setPlacingTile(data as "cheering" | "booing");
-        setMessage(`${currentPlayer.name}, click on a track position to place your ${data} tile...`);
+        if (!skipDialog) {
+          setActionDialog({
+            type: "bet",
+            title: "Bet Placed!",
+            message: `${currentPlayer.name} bet ${value} EP on ${color.toUpperCase()} camel!`,
+            camelColor: color,
+            value,
+          });
+        }
+        
+        setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
         break;
       }
 
       case "pyramid_ticket": {
         if (gameState.availableDice.length === 0) return;
 
-        // Roll a random die
         const randomIndex = Math.floor(Math.random() * gameState.availableDice.length);
         const diceColor = gameState.availableDice[randomIndex];
         const steps = Math.floor(Math.random() * 3) + 1;
 
-        let updatedCamels = gameState.camels;
-        let movedCamelColor: CamelColor;
-
-        if (diceColor === "grey") {
-          // Roll for crazy camel (randomly pick white or black)
-          movedCamelColor = Math.random() < 0.5 ? "white" : "black";
-          updatedCamels = moveCamel(updatedCamels, movedCamelColor, steps, gameState.spectatorTiles);
-        } else {
-          movedCamelColor = diceColor as CamelColor;
-          updatedCamels = moveCamel(updatedCamels, movedCamelColor, steps, gameState.spectatorTiles);
-        }
-
+        const updatedCamels = moveCamel(gameState.camels, diceColor as CamelColor, steps);
         const newAvailableDice = gameState.availableDice.filter((_, i) => i !== randomIndex);
 
-        // Check if game ended
-        const { ended, winner, lastPlace } = checkGameEnd(updatedCamels);
+        const { ended, winner } = checkGameEnd(updatedCamels);
 
-        if (ended && winner && lastPlace) {
-          const finalPlayers = scoreFinalBets(gameState.players, gameState.finishBets, winner, lastPlace);
+        if (ended && winner) {
+          const leaderboard = getLeaderboard(updatedCamels);
+          const finalPlayers = scoreLegBets(gameState.players, leaderboard).map(p =>
+            p.id === currentPlayer.id ? { ...p, pyramidTickets: p.pyramidTickets + 1 } : p
+          );
+          
           setGameState({
             ...gameState,
             camels: updatedCamels,
             availableDice: newAvailableDice,
-            players: finalPlayers.map(p =>
-              p.id === currentPlayer.id
-                ? { ...p, pyramidTickets: p.pyramidTickets + 1 }
-                : p
-            ),
+            players: finalPlayers,
             gameEnded: true,
             winner,
-            lastInRacing: lastPlace,
           });
-          setMessage(`🏆 ${winner.toUpperCase()} WINS! 🏆`);
+          setMessage(`🏆 ${winner.toUpperCase()} CAMEL WINS! 🏆`);
         } else {
           setGameState({
             ...gameState,
             camels: updatedCamels,
             availableDice: newAvailableDice,
             players: gameState.players.map(p =>
-              p.id === currentPlayer.id
-                ? { ...p, pyramidTickets: p.pyramidTickets + 1 }
-                : p
+              p.id === currentPlayer.id ? { ...p, pyramidTickets: p.pyramidTickets + 1 } : p
             ),
           });
 
-          setMessage(`${movedCamelColor.toUpperCase()} moved ${steps} spaces!`);
+          if (!skipDialog) {
+            setActionDialog({
+              type: "roll",
+              title: "Dice Rolled!",
+              message: `${currentPlayer.name} rolled ${steps} for ${diceColor.toUpperCase()} camel!`,
+              camelColor: diceColor as CamelColor,
+            });
+          }
           
-          // Check if leg ended
           if (newAvailableDice.length === 0) {
-            setTimeout(() => endLeg(), 1500);
+            setTimeout(() => endLeg(), 2000);
           } else {
-            nextPlayer();
+            setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
           }
         }
         break;
       }
-
-      case "finish_bet": {
-        const { color, type } = data as { color: CamelColor; type: "winner" | "loser" };
-        if (!currentPlayer.finishCards.includes(color)) return;
-
-        const bet: FinishCard = {
-          camelColor: color,
-          playerId: currentPlayer.id,
-          type,
-        };
-
-        setGameState({
-          ...gameState,
-          finishBets: [...gameState.finishBets, bet],
-          players: gameState.players.map(p =>
-            p.id === currentPlayer.id
-              ? { ...p, finishCards: p.finishCards.filter(c => c !== color) }
-              : p
-          ),
-        });
-
-        setMessage(`${currentPlayer.name} bet on ${color.toUpperCase()} for overall ${type}!`);
-        nextPlayer();
-        break;
-      }
-
-      case "partnership": {
-        const partnerId = data as number;
-        setGameState({
-          ...gameState,
-          players: gameState.players.map(p =>
-            p.id === currentPlayer.id || p.id === partnerId
-              ? { ...p, partnerId: p.id === currentPlayer.id ? partnerId : currentPlayer.id, partnershipAvailable: false }
-              : p
-          ),
-        });
-
-        const partner = gameState.players[partnerId];
-        setMessage(`${currentPlayer.name} and ${partner.name} formed a partnership!`);
-        nextPlayer();
-        break;
-      }
     }
   };
 
-  const handleTileClick = (position: number) => {
-    if (!placingTile || !gameState) return;
-
-    const currentPlayer = gameState.players[gameState.currentPlayer];
-
-    // Check validity
-    if (position === 0) {
-      setMessage("Cannot place tile on starting position!");
-      return;
-    }
-
-    const hasCamel = gameState.camels.some(c => c.position === position);
-    const hasTile = gameState.spectatorTiles.some(t => t.position === position);
-    const hasAdjacentTile = gameState.spectatorTiles.some(t => 
-      Math.abs(t.position - position) === 1
-    );
-
-    if (hasCamel || hasTile || hasAdjacentTile) {
-      setMessage("Cannot place tile here! (must be empty and not adjacent to other tiles)");
-      return;
-    }
-
-    // Remove player's previous tile if exists
-    const newTiles = gameState.spectatorTiles.filter(t => t.owner !== currentPlayer.name);
-    
-    newTiles.push({
-      position,
-      type: placingTile,
-      owner: currentPlayer.name,
-    });
-
-    setGameState({
-      ...gameState,
-      spectatorTiles: newTiles,
-      players: gameState.players.map(p =>
-        p.id === currentPlayer.id
-          ? { ...p, spectatorTilePlaced: true }
-          : p
-      ),
-    });
-
-    setMessage(`${currentPlayer.name} placed a ${placingTile} tile at position ${position + 1}!`);
-    setPlacingTile(null);
-    nextPlayer();
-  };
-
-  const handleReset = () => {
-    if (numPlayers) {
-      startNewGame(numPlayers);
-    } else {
-      setGameState(null);
-      setNumPlayers(null);
-    }
-    setMessage("");
-    setPlacingTile(null);
-  };
-
-  // Setup screen
-  if (!gameState) {
+  // Menu screen
+  if (setupMode === "menu") {
     return (
       <div style={{
         padding: "40px",
@@ -1066,40 +915,148 @@ const CamelRaceGame: React.FC = () => {
         justifyContent: "center",
       }}>
         <h1 style={{
-          fontSize: "60px",
+          fontSize: "72px",
           color: "#8B4513",
-          textShadow: "3px 3px 6px rgba(0,0,0,0.3)",
-          marginBottom: "40px",
+          textShadow: "4px 4px 8px rgba(0,0,0,0.3)",
+          marginBottom: "20px",
         }}>
           🐪 Camel Up 🐪
         </h1>
-        <h2 style={{ marginBottom: "30px", color: "#8B4513" }}>Select Number of Players</h2>
-        <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", justifyContent: "center" }}>
-          {[2, 3, 4, 5, 6, 7, 8].map(num => (
-            <button
-              key={num}
-              onClick={() => startNewGame(num)}
-              style={{
-                padding: "20px 40px",
-                fontSize: "24px",
-                backgroundColor: "#FF9800",
-                color: "white",
-                border: "4px solid #333",
-                borderRadius: "12px",
-                cursor: "pointer",
-                fontWeight: "bold",
-                transition: "transform 0.2s",
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
-            >
-              {num} Players
-            </button>
-          ))}
+        <p style={{ 
+          fontSize: "24px", 
+          color: "#8B4513", 
+          marginBottom: "40px",
+          textAlign: "center",
+        }}>
+          The Ultimate Camel Racing Board Game
+        </p>
+
+        <div style={{
+          backgroundColor: "#FFF",
+          padding: "40px",
+          borderRadius: "20px",
+          border: "4px solid #8B4513",
+          boxShadow: "0 10px 20px rgba(0,0,0,0.2)",
+          maxWidth: "600px",
+          width: "100%",
+        }}>
+          <h3 style={{ 
+            textAlign: "center", 
+            marginBottom: "30px",
+            color: "#8B4513",
+            fontSize: "28px",
+          }}>
+            Setup Your Game
+          </h3>
+
+          <input
+            type="text"
+            placeholder="Your Name"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "15px",
+              fontSize: "18px",
+              border: "3px solid #8B4513",
+              borderRadius: "10px",
+              marginBottom: "20px",
+              boxSizing: "border-box",
+            }}
+          />
+
+          <div style={{ marginBottom: "30px" }}>
+            <label style={{ 
+              display: "block", 
+              marginBottom: "10px",
+              fontSize: "18px",
+              color: "#8B4513",
+              fontWeight: "bold",
+            }}>
+              Number of Bot Players: {numBots}
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="4"
+              value={numBots}
+              onChange={(e) => setNumBots(parseInt(e.target.value))}
+              style={{ width: "100%" }}
+            />
+            <div style={{ 
+              display: "flex", 
+              justifyContent: "space-between",
+              fontSize: "14px",
+              color: "#666",
+              marginTop: "5px",
+            }}>
+              <span>0</span>
+              <span>1</span>
+              <span>2</span>
+              <span>3</span>
+              <span>4</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => startGame("solo")}
+            style={{
+              width: "100%",
+              padding: "20px",
+              fontSize: "22px",
+              backgroundColor: "#4CAF50",
+              color: "white",
+              border: "4px solid #333",
+              borderRadius: "12px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              marginBottom: "15px",
+              transition: "transform 0.2s",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+          >
+            🎮 Start Solo Game
+          </button>
+
+          <button
+            onClick={() => startGame("host")}
+            style={{
+              width: "100%",
+              padding: "20px",
+              fontSize: "22px",
+              backgroundColor: "#2196F3",
+              color: "white",
+              border: "4px solid #333",
+              borderRadius: "12px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              transition: "transform 0.2s",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+          >
+            🌐 Host Multiplayer Room
+          </button>
+
+          <div style={{
+            marginTop: "30px",
+            padding: "20px",
+            backgroundColor: "#F0F0F0",
+            borderRadius: "10px",
+            textAlign: "center",
+          }}>
+            <p style={{ fontSize: "14px", color: "#666" }}>
+              💡 WebRTC multiplayer coming soon! For now, enjoy the game with bots.
+            </p>
+          </div>
         </div>
       </div>
     );
   }
+
+  // Game screen
+  if (!gameState) return null;
 
   // Game ended screen
   if (gameState.gameEnded && gameState.winner) {
@@ -1115,61 +1072,90 @@ const CamelRaceGame: React.FC = () => {
       }}>
         <h1 style={{
           textAlign: "center",
-          fontSize: "60px",
+          fontSize: "64px",
           color: gameState.winner,
-          textShadow: "3px 3px 6px rgba(0,0,0,0.3)",
+          textShadow: "4px 4px 8px rgba(0,0,0,0.3)",
           marginBottom: "20px",
+          animation: "pulse 2s infinite",
         }}>
           🏆 {gameState.winner.toUpperCase()} CAMEL WINS! 🏆
         </h1>
 
-        <h2 style={{ textAlign: "center", color: "#8B4513", marginBottom: "30px" }}>
-          Winner: {winningPlayer.name} with {winningPlayer.money} EP!
+        <h2 style={{ 
+          textAlign: "center", 
+          color: "#8B4513", 
+          marginBottom: "40px",
+          fontSize: "32px",
+        }}>
+          Champion: {winningPlayer.name} with {winningPlayer.money} EP!
         </h2>
 
         <div style={{
-          maxWidth: "600px",
+          maxWidth: "700px",
           margin: "0 auto",
-          padding: "20px",
+          padding: "30px",
           backgroundColor: "#FFF",
-          borderRadius: "10px",
-          border: "3px solid #8B4513",
+          borderRadius: "20px",
+          border: "4px solid #8B4513",
+          boxShadow: "0 10px 20px rgba(0,0,0,0.3)",
         }}>
-          <h3 style={{ textAlign: "center", marginBottom: "20px" }}>Final Standings</h3>
+          <h3 style={{ 
+            textAlign: "center", 
+            marginBottom: "25px",
+            fontSize: "28px",
+            color: "#8B4513",
+          }}>
+            Final Standings
+          </h3>
           {sortedPlayers.map((player, idx) => (
             <div
               key={player.id}
               style={{
-                padding: "15px",
-                marginBottom: "10px",
-                backgroundColor: player.color,
-                borderRadius: "8px",
+                padding: "20px",
+                marginBottom: "15px",
+                background: `linear-gradient(135deg, ${player.color} 0%, ${player.color}dd 100%)`,
+                borderRadius: "12px",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
                 fontWeight: "bold",
-                fontSize: "18px",
+                fontSize: "20px",
+                border: "3px solid #333",
+                color: "#FFF",
+                textShadow: "1px 1px 2px rgba(0,0,0,0.5)",
               }}
             >
-              <span>{idx + 1}. {player.name}</span>
-              <span>💰 {player.money} EP</span>
+              <span>
+                <span style={{ fontSize: "28px", marginRight: "15px" }}>
+                  {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`}
+                </span>
+                {player.name} {player.isBot && "🤖"}
+              </span>
+              <span style={{ fontSize: "24px" }}>💰 {player.money} EP</span>
             </div>
           ))}
         </div>
 
         <div style={{ textAlign: "center", marginTop: "40px" }}>
           <button
-            onClick={handleReset}
+            onClick={() => {
+              setGameState(null);
+              setSetupMode("menu");
+              setMessage("");
+            }}
             style={{
-              padding: "20px 40px",
-              fontSize: "24px",
+              padding: "25px 50px",
+              fontSize: "26px",
               backgroundColor: "#4CAF50",
               color: "white",
               border: "4px solid #333",
-              borderRadius: "12px",
+              borderRadius: "15px",
               cursor: "pointer",
               fontWeight: "bold",
+              transition: "transform 0.2s",
             }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
           >
             🔄 New Game
           </button>
@@ -1178,7 +1164,9 @@ const CamelRaceGame: React.FC = () => {
     );
   }
 
-  // Main game screen
+  const currentPlayer = gameState.players[gameState.currentPlayer];
+  const isLocalPlayerTurn = currentPlayer.isLocal;
+
   return (
     <div style={{
       padding: "20px",
@@ -1186,87 +1174,135 @@ const CamelRaceGame: React.FC = () => {
       backgroundColor: "#FFF5E6",
       minHeight: "100vh",
     }}>
+      <style>{`
+        @keyframes slideIn {
+          from {
+            transform: translateY(-50px);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+        @keyframes pulse {
+          0%, 100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.05);
+          }
+        }
+      `}</style>
+
       <h1 style={{
         textAlign: "center",
         color: "#8B4513",
-        fontSize: "48px",
-        textShadow: "2px 2px 4px rgba(0,0,0,0.3)",
+        fontSize: "56px",
+        textShadow: "3px 3px 6px rgba(0,0,0,0.3)",
+        marginBottom: "10px",
       }}>
         🐪 Camel Up 🐪
       </h1>
+
+      {gameState.roomCode && (
+        <div style={{
+          textAlign: "center",
+          backgroundColor: "#2196F3",
+          color: "white",
+          padding: "15px",
+          borderRadius: "10px",
+          marginBottom: "20px",
+          fontSize: "20px",
+          fontWeight: "bold",
+        }}>
+          🌐 Room Code: {gameState.roomCode}
+        </div>
+      )}
 
       <div style={{
         display: "flex",
         justifyContent: "space-around",
         marginBottom: "20px",
-        padding: "15px",
+        padding: "20px",
         backgroundColor: "#FFF",
-        borderRadius: "10px",
-        border: "2px solid #8B4513",
+        borderRadius: "15px",
+        border: "3px solid #8B4513",
         flexWrap: "wrap",
-        gap: "10px",
+        gap: "15px",
+        boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
       }}>
-        <div style={{ fontSize: "20px", fontWeight: "bold" }}>
+        <div style={{ fontSize: "24px", fontWeight: "bold", color: "#8B4513" }}>
           Leg: {gameState.leg}
         </div>
-        <div style={{ fontSize: "20px" }}>
-          Dice Rolled: {6 - gameState.availableDice.length}/6
+        <div style={{ fontSize: "24px", fontWeight: "bold", color: "#8B4513" }}>
+          Current Turn: <span style={{ color: currentPlayer.color }}>{currentPlayer.name}</span>
+          {currentPlayer.isBot && " 🤖"}
         </div>
       </div>
 
       {message && (
         <div style={{
-          padding: "15px",
+          padding: "20px",
           backgroundColor: "#FFE66D",
-          border: "2px solid #333",
-          borderRadius: "8px",
+          border: "3px solid #333",
+          borderRadius: "12px",
           textAlign: "center",
-          fontSize: "18px",
+          fontSize: "20px",
           fontWeight: "bold",
-          marginBottom: "20px",
+          marginBottom: "25px",
+          boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
         }}>
           {message}
         </div>
       )}
 
-      <DicePyramid availableDice={gameState.availableDice} />
+      <Track camels={gameState.camels} />
 
-      <Track
-        camels={gameState.camels}
-        spectatorTiles={gameState.spectatorTiles}
-        onTileClick={placingTile ? handleTileClick : undefined}
-        clickablePositions={!!placingTile}
+      <CenteredDiceRoller
+        availableDice={gameState.availableDice}
+        onRoll={() => handleAction("pyramid_ticket")}
+        disabled={!isLocalPlayerTurn}
+        currentPlayerName={currentPlayer.name}
       />
 
-      <Leaderboard camels={gameState.camels} />
-
-      <PlayerPanel
+      <EnhancedLeaderboard 
         players={gameState.players}
-        currentPlayer={gameState.currentPlayer}
+        camels={gameState.camels}
       />
 
-      <ActionPanel
+      <BettingPanel
         gameState={gameState}
-        onAction={handleAction}
+        onBet={(color) => handleAction("betting_ticket", color)}
+        disabled={!isLocalPlayerTurn}
       />
 
       <div style={{ textAlign: "center", marginTop: "30px" }}>
         <button
-          onClick={handleReset}
+          onClick={() => {
+            setGameState(null);
+            setSetupMode("menu");
+            setMessage("");
+          }}
           style={{
             padding: "15px 30px",
             fontSize: "18px",
             backgroundColor: "#FF5722",
             color: "white",
             border: "3px solid #333",
-            borderRadius: "8px",
+            borderRadius: "10px",
             cursor: "pointer",
             fontWeight: "bold",
           }}
         >
-          🔄 Reset Game
+          🏠 Back to Menu
         </button>
       </div>
+
+      <ActionDialog
+        data={actionDialog}
+        onClose={() => setActionDialog(null)}
+      />
     </div>
   );
 };
