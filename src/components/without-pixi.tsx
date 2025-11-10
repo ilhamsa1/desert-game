@@ -811,11 +811,11 @@ const CamelRaceGame: React.FC = () => {
           if (exists) return prev;
           const updatedPlayers = [...prev, message.player];
           
-          // If host, send updated lobby state to new player (including them)
+          // If host, broadcast updated lobby state to ALL peers (not just the new one)
           if (isHost) {
             // Use setTimeout to ensure this runs after state update
             setTimeout(() => {
-              conn.send({
+              broadcastToPeers.current({
                 type: 'LOBBY_UPDATE',
                 players: updatedPlayers,
               } as LobbyUpdateMessage);
