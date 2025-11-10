@@ -662,12 +662,10 @@ const BettingPanel: React.FC<{
 }> = ({ gameState, onBet, disabled }) => {
   return (
     <div style={{
-      margin: "20px auto",
       padding: "25px",
       backgroundColor: "#FFF",
       borderRadius: "15px",
       border: "3px solid #8B4513",
-      maxWidth: "1000px",
       boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
     }}>
       <h3 style={{ 
@@ -739,6 +737,7 @@ const CamelRaceGame: React.FC = () => {
   const [message, setMessage] = useState<string>("");
   const [actionDialog, setActionDialog] = useState<ActionDialogData | null>(null);
   const [placingTile, setPlacingTile] = useState<"cheering" | "booing" | null>(null);
+  const [waitingForNextTurn, setWaitingForNextTurn] = useState<boolean>(false);
   const botTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Start game
@@ -837,6 +836,7 @@ const CamelRaceGame: React.FC = () => {
 
   const nextPlayer = () => {
     if (!gameState) return;
+    setWaitingForNextTurn(false);
     setGameState(prev => prev ? {
       ...prev,
       currentPlayer: (prev.currentPlayer + 1) % prev.players.length,
@@ -914,7 +914,13 @@ const CamelRaceGame: React.FC = () => {
           });
         }
         
-        setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+        // If bot made the action, wait for manual advance
+        if (currentPlayer.isBot) {
+          setWaitingForNextTurn(true);
+          setMessage(`${currentPlayer.name} bet ${value} EP on ${color.toUpperCase()}! Click "Next Turn" to continue.`);
+        } else {
+          setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+        }
         break;
       }
 
@@ -964,11 +970,13 @@ const CamelRaceGame: React.FC = () => {
               ),
             });
             
-            setMessage(`${currentPlayer.name} placed a ${tileType} tile at position ${randomPosition + 1}!`);
+            setMessage(`${currentPlayer.name} placed a ${tileType} tile at position ${randomPosition + 1}! Click "Next Turn" to continue.`);
+            setWaitingForNextTurn(true);
+          } else {
+            // If no valid positions, just move to next player
+            setTimeout(() => nextPlayer(), 100);
+            return;
           }
-          
-          // Move to next player
-          setTimeout(() => nextPlayer(), 100);
         } else {
           // For human players, set the placing mode
           setPlacingTile(data as "cheering" | "booing");
@@ -1032,7 +1040,13 @@ const CamelRaceGame: React.FC = () => {
           if (newAvailableDice.length === 0) {
             setTimeout(() => endLeg(), 2000);
           } else {
-            setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+            // If bot made the action, wait for manual advance
+            if (currentPlayer.isBot) {
+              setWaitingForNextTurn(true);
+              setMessage(`${currentPlayer.name} rolled ${steps} for ${diceColor.toUpperCase()}! Click "Next Turn" to continue.`);
+            } else {
+              setTimeout(() => nextPlayer(), skipDialog ? 0 : 100);
+            }
           }
         }
         break;
@@ -1406,7 +1420,7 @@ const CamelRaceGame: React.FC = () => {
   }
 
   const currentPlayer = gameState.players[gameState.currentPlayer];
-  const isLocalPlayerTurn = currentPlayer.isLocal;
+  const isLocalPlayerTurn = currentPlayer.isLocal && !waitingForNextTurn;
 
   return (
     <div style={{
@@ -1513,144 +1527,191 @@ const CamelRaceGame: React.FC = () => {
         </div>
       )}
 
-      {/* Main Game Layout - Board Center, Leaderboard Right */}
+      {/* Manual Next Turn Button */}
+      {waitingForNextTurn && (
+        <div style={{
+          maxWidth: "900px",
+          margin: "0 auto 25px auto",
+          textAlign: "center",
+        }}>
+          <button
+            onClick={() => nextPlayer()}
+            style={{
+              padding: "20px 60px",
+              fontSize: "24px",
+              backgroundColor: "#4CAF50",
+              color: "white",
+              border: "4px solid #333",
+              borderRadius: "15px",
+              cursor: "pointer",
+              fontWeight: "bold",
+              transition: "all 0.3s ease",
+              boxShadow: "0 8px 16px rgba(76, 175, 80, 0.6)",
+              animation: "pulse 2s infinite",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.1)";
+              e.currentTarget.style.boxShadow = "0 12px 24px rgba(76, 175, 80, 0.8)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow = "0 8px 16px rgba(76, 175, 80, 0.6)";
+            }}
+          >
+            ▶️ NEXT TURN ▶️
+          </button>
+          <div style={{
+            marginTop: "10px",
+            fontSize: "14px",
+            color: "#666",
+            fontStyle: "italic",
+          }}>
+            Review the bot's action and click to continue
+          </div>
+        </div>
+      )}
+
+      {/* Main Game Layout - Board Center with Dice on Left, Leaderboard Right */}
       <div style={{
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
         gap: "30px",
-        maxWidth: "1400px",
+        maxWidth: "1600px",
         margin: "0 auto 30px auto",
         flexWrap: "wrap",
       }}>
-        {/* Board and Controls */}
+        {/* Dice Roller on the Left */}
         <div style={{
-          flex: "1",
-          minWidth: "900px",
+          flex: "0 0 auto",
+          display: "flex",
+          alignItems: "center",
+        }}>
+          <div style={{
+            padding: "30px",
+            backgroundColor: "#FFF",
+            borderRadius: "20px",
+            border: "5px solid #8B4513",
+            boxShadow: "0 8px 16px rgba(0,0,0,0.3)",
+            textAlign: "center",
+            minWidth: "280px",
+          }}>
+            <h2 style={{ 
+              color: "#8B4513", 
+              marginBottom: "20px",
+              fontSize: "26px",
+              textShadow: "1px 1px 2px rgba(0,0,0,0.2)",
+            }}>
+              🎲 Dice Pyramid 🎲
+            </h2>
+            
+            <div style={{
+              display: "flex",
+              justifyContent: "center",
+              flexWrap: "wrap",
+              gap: "10px",
+              marginBottom: "20px",
+            }}>
+              {["red", "blue", "green", "yellow", "purple"].map(color => {
+                const isAvailable = gameState.availableDice.includes(color as DiceColor);
+                return (
+                  <div
+                    key={color}
+                    style={{
+                      width: "50px",
+                      height: "50px",
+                      backgroundColor: isAvailable ? color : "#333",
+                      border: `3px solid ${isAvailable ? "#8B4513" : "#666"}`,
+                      borderRadius: "10px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "24px",
+                      opacity: isAvailable ? 1 : 0.3,
+                      transition: "all 0.3s ease",
+                      boxShadow: isAvailable ? "0 3px 6px rgba(0,0,0,0.3)" : "inset 0 3px 6px rgba(0,0,0,0.5)",
+                    }}
+                  >
+                    {isAvailable ? "🎲" : "✓"}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ 
+              color: "#8B4513", 
+              marginBottom: "25px", 
+              fontSize: "18px",
+              fontWeight: "bold",
+              padding: "10px",
+              backgroundColor: "#FFF5E6",
+              borderRadius: "10px",
+            }}>
+              {gameState.availableDice.length}/5 dice remaining
+            </div>
+
+            <button
+              onClick={() => handleAction("pyramid_ticket")}
+              disabled={!isLocalPlayerTurn || gameState.availableDice.length === 0}
+              style={{
+                width: "100%",
+                padding: "18px 25px",
+                fontSize: "20px",
+                backgroundColor: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "#ccc" : "#FF9800",
+                color: "white",
+                border: "4px solid #333",
+                borderRadius: "12px",
+                cursor: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "not-allowed" : "pointer",
+                fontWeight: "bold",
+                transition: "all 0.3s ease",
+                boxShadow: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "none" : "0 6px 12px rgba(255, 152, 0, 0.6)",
+                opacity: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (isLocalPlayerTurn && gameState.availableDice.length > 0) {
+                  e.currentTarget.style.transform = "scale(1.05)";
+                  e.currentTarget.style.boxShadow = "0 8px 16px rgba(255, 152, 0, 0.8)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (isLocalPlayerTurn && gameState.availableDice.length > 0) {
+                  e.currentTarget.style.transform = "scale(1)";
+                  e.currentTarget.style.boxShadow = "0 6px 12px rgba(255, 152, 0, 0.6)";
+                }
+              }}
+            >
+              🎲 ROLL DICE 🎲
+            </button>
+
+            {gameState.availableDice.length > 0 && (
+              <div style={{ 
+                marginTop: "15px", 
+                color: "#8B4513",
+                fontSize: "14px",
+                fontWeight: "bold",
+                padding: "8px",
+                backgroundColor: "#FFE66D",
+                borderRadius: "8px",
+              }}>
+                {isLocalPlayerTurn ? "Your turn!" : `${currentPlayer.name}'s turn`}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Board in Center */}
+        <div style={{
+          flex: "0 0 auto",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
         }}>
-          <div style={{
-            position: "relative",
-            width: "900px",
-          }}>
-            <Track 
-              camels={gameState.camels}
-              spectatorTiles={gameState.spectatorTiles}
-              onTileClick={placingTile ? handleTileClick : undefined}
-              clickablePositions={!!placingTile}
-            />
-            
-            {/* Dice Roller positioned in center of board */}
-            <div style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              zIndex: 20,
-            }}>
-              <div style={{
-                padding: "30px",
-                backgroundColor: "rgba(139, 69, 19, 0.95)",
-                borderRadius: "20px",
-                border: "5px solid #654321",
-                boxShadow: "0 15px 30px rgba(0,0,0,0.7)",
-                textAlign: "center",
-              }}>
-                <h2 style={{ 
-                  color: "#FFE66D", 
-                  marginBottom: "15px",
-                  fontSize: "28px",
-                  textShadow: "2px 2px 4px rgba(0,0,0,0.5)",
-                }}>
-                  🎲 Dice Pyramid 🎲
-                </h2>
-                
-                <div style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  gap: "10px",
-                  marginBottom: "20px",
-                }}>
-                  {["red", "blue", "green", "yellow", "purple"].map(color => {
-                    const isAvailable = gameState.availableDice.includes(color as DiceColor);
-                    return (
-                      <div
-                        key={color}
-                        style={{
-                          width: "50px",
-                          height: "50px",
-                          backgroundColor: isAvailable ? color : "#333",
-                          border: `3px solid ${isAvailable ? "#FFF" : "#666"}`,
-                          borderRadius: "10px",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "24px",
-                          opacity: isAvailable ? 1 : 0.3,
-                          transition: "all 0.3s ease",
-                          boxShadow: isAvailable ? "0 3px 6px rgba(255,255,255,0.3)" : "inset 0 3px 6px rgba(0,0,0,0.5)",
-                        }}
-                      >
-                        {isAvailable ? "🎲" : "✓"}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div style={{ 
-                  color: "#FFE66D", 
-                  marginBottom: "20px", 
-                  fontSize: "16px",
-                  fontWeight: "bold",
-                }}>
-                  {gameState.availableDice.length}/5 dice remaining
-                </div>
-
-                <button
-                  onClick={() => handleAction("pyramid_ticket")}
-                  disabled={!isLocalPlayerTurn || gameState.availableDice.length === 0}
-                  style={{
-                    padding: "18px 45px",
-                    fontSize: "22px",
-                    backgroundColor: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "#666" : "#FF9800",
-                    color: "white",
-                    border: "4px solid #333",
-                    borderRadius: "15px",
-                    cursor: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "not-allowed" : "pointer",
-                    fontWeight: "bold",
-                    transition: "all 0.3s ease",
-                    boxShadow: !isLocalPlayerTurn || gameState.availableDice.length === 0 ? "none" : "0 6px 12px rgba(255, 152, 0, 0.6)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isLocalPlayerTurn && gameState.availableDice.length > 0) {
-                      e.currentTarget.style.transform = "scale(1.05)";
-                      e.currentTarget.style.boxShadow = "0 8px 16px rgba(255, 152, 0, 0.8)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (isLocalPlayerTurn && gameState.availableDice.length > 0) {
-                      e.currentTarget.style.transform = "scale(1)";
-                      e.currentTarget.style.boxShadow = "0 6px 12px rgba(255, 152, 0, 0.6)";
-                    }
-                  }}
-                >
-                  🎲 ROLL DICE 🎲
-                </button>
-
-                {gameState.availableDice.length > 0 && (
-                  <div style={{ 
-                    marginTop: "15px", 
-                    color: "#FFE66D",
-                    fontSize: "14px",
-                  }}>
-                    {currentPlayer.name}'s turn
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <Track 
+            camels={gameState.camels}
+            spectatorTiles={gameState.spectatorTiles}
+            onTileClick={placingTile ? handleTileClick : undefined}
+            clickablePositions={!!placingTile}
+          />
         </div>
 
         {/* Leaderboard on the Right */}
@@ -1671,7 +1732,7 @@ const CamelRaceGame: React.FC = () => {
         backgroundColor: "#FFF",
         borderRadius: "15px",
         border: "3px solid #8B4513",
-        maxWidth: "1000px",
+        maxWidth: "900px",
         boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
       }}>
         <h3 style={{ 
@@ -1760,11 +1821,13 @@ const CamelRaceGame: React.FC = () => {
         )}
       </div>
 
-      <BettingPanel
-        gameState={gameState}
-        onBet={(color) => handleAction("betting_ticket", color)}
-        disabled={!isLocalPlayerTurn}
-      />
+      <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+        <BettingPanel
+          gameState={gameState}
+          onBet={(color) => handleAction("betting_ticket", color)}
+          disabled={!isLocalPlayerTurn}
+        />
+      </div>
 
       <div style={{ textAlign: "center", marginTop: "30px" }}>
         <button
