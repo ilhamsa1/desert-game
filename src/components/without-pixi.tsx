@@ -345,17 +345,63 @@ const Track: React.FC<{
     return { x: x - 25, y: y - 25 };
   };
 
+  // Get tile color pattern - alternating desert colors
+  const getTileStyle = (index: number) => {
+    const colors = [
+      "linear-gradient(135deg, #FFE4B5 0%, #F4D03F 100%)", // Golden
+      "linear-gradient(135deg, #F5DEB3 0%, #DEB887 100%)", // Wheat
+      "linear-gradient(135deg, #FFDAB9 0%, #FFB347 100%)", // Peach
+      "linear-gradient(135deg, #FFE5CC 0%, #FFA07A 100%)", // Light Salmon
+    ];
+    
+    return colors[index % 4];
+  };
+
   return (
     <div style={{
       position: "relative",
       width: `${trackWidth}px`,
       height: `${trackHeight}px`,
-      margin: "0 auto",
-      border: "5px solid #8B4513",
-      backgroundColor: "#F4A460",
-      borderRadius: "15px",
-      boxShadow: "0 8px 16px rgba(0,0,0,0.3)",
+      border: "6px solid #8B4513",
+      background: "linear-gradient(135deg, #F4A460 0%, #DEB887 50%, #D2691E 100%)",
+      borderRadius: "20px",
+      boxShadow: "0 12px 24px rgba(0,0,0,0.4), inset 0 0 50px rgba(139,69,19,0.3)",
+      padding: "10px",
     }}>
+      {/* Decorative Egyptian/Desert patterns in corners */}
+      <div style={{
+        position: "absolute",
+        top: "-5px",
+        left: "-5px",
+        fontSize: "40px",
+        zIndex: 1,
+        opacity: 0.3,
+      }}>🏜️</div>
+      <div style={{
+        position: "absolute",
+        top: "-5px",
+        right: "-5px",
+        fontSize: "40px",
+        zIndex: 1,
+        opacity: 0.3,
+      }}>🏜️</div>
+      <div style={{
+        position: "absolute",
+        bottom: "-5px",
+        left: "-5px",
+        fontSize: "40px",
+        zIndex: 1,
+        opacity: 0.3,
+      }}>🏜️</div>
+      <div style={{
+        position: "absolute",
+        bottom: "-5px",
+        right: "-5px",
+        fontSize: "40px",
+        zIndex: 1,
+        opacity: 0.3,
+      }}>🏜️</div>
+      
       {Array.from({ length: totalPositions }).map((_, index) => {
         const { x, y } = getCamelPosition(index);
         const spectatorTile = spectatorTiles.find(tile => tile.position === index);
@@ -372,40 +418,60 @@ const Track: React.FC<{
               top: `${y + 15}px`,
               width: "60px",
               height: "60px",
-              backgroundColor: index === 0 ? "#4CAF50" : "#FFF8DC",
-              border: "2px solid #8B4513",
-              borderRadius: "8px",
+              background: index === 0 
+                ? "linear-gradient(135deg, #4CAF50 0%, #45a049 100%)" 
+                : getTileStyle(index),
+              border: "3px solid #8B4513",
+              borderRadius: "10px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "12px",
+              fontSize: "14px",
               fontWeight: "bold",
-              color: "#333",
+              color: "#8B4513",
               cursor: isClickable ? "pointer" : "default",
               transition: "transform 0.2s, box-shadow 0.2s",
-              boxShadow: isClickable ? "0 2px 4px rgba(0,0,0,0.2)" : "none",
+              boxShadow: isClickable 
+                ? "0 3px 6px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.5)" 
+                : "0 2px 4px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.3)",
+              textShadow: "1px 1px 2px rgba(255,255,255,0.8)",
+              backgroundSize: "200% 200%",
+              animation: isClickable ? "shimmer 3s ease infinite" : "none",
             }}
             onMouseEnter={(e) => {
               if (isClickable) {
-                e.currentTarget.style.transform = "scale(1.1)";
-                e.currentTarget.style.boxShadow = "0 4px 8px rgba(0,0,0,0.3)";
+                e.currentTarget.style.transform = "scale(1.15) rotate(2deg)";
+                e.currentTarget.style.boxShadow = "0 6px 12px rgba(255,215,0,0.6), inset 0 0 15px rgba(255,255,255,0.7)";
               }
             }}
             onMouseLeave={(e) => {
               if (isClickable) {
                 e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+                e.currentTarget.style.boxShadow = "0 3px 6px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.5)";
               }
             }}
           >
-            {index === 0 ? "START" : index + 1}
+            {index === 0 ? (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column", 
+                alignItems: "center",
+                color: "white",
+                textShadow: "1px 1px 3px rgba(0,0,0,0.7)",
+              }}>
+                <span style={{ fontSize: "10px" }}>🏁</span>
+                <span style={{ fontSize: "9px" }}>START</span>
+              </div>
+            ) : (
+              <span>{index + 1}</span>
+            )}
             {spectatorTile && (
               <div style={{
                 position: "absolute",
-                bottom: "0px",
-                fontSize: "32px",
+                bottom: "-8px",
+                fontSize: "36px",
                 zIndex: 5,
-                filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.3))",
+                filter: "drop-shadow(0 3px 3px rgba(0,0,0,0.5))",
               }}>
                 {spectatorTile.type === "cheering" ? "👍" : "👎"}
               </div>
@@ -566,7 +632,7 @@ const CenteredDiceRoller: React.FC<{
   );
 };
 
-// Enhanced Leaderboard
+// Enhanced Leaderboard (Right Side)
 const EnhancedLeaderboard: React.FC<{ 
   players: Player[];
   camels: Camel[];
@@ -576,15 +642,15 @@ const EnhancedLeaderboard: React.FC<{
   
   return (
     <div style={{
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: "30px",
-      margin: "30px auto",
-      maxWidth: "1200px",
+      display: "flex",
+      flexDirection: "column",
+      gap: "20px",
+      minWidth: "320px",
+      maxWidth: "350px",
     }}>
       {/* Player Leaderboard */}
       <div style={{
-        padding: "25px",
+        padding: "20px",
         backgroundColor: "#FFF",
         borderRadius: "15px",
         border: "4px solid #8B4513",
@@ -593,8 +659,8 @@ const EnhancedLeaderboard: React.FC<{
         <h2 style={{ 
           textAlign: "center", 
           color: "#8B4513",
-          marginBottom: "20px",
-          fontSize: "28px",
+          marginBottom: "15px",
+          fontSize: "22px",
         }}>
           💰 Player Standings 💰
         </h2>
@@ -602,32 +668,32 @@ const EnhancedLeaderboard: React.FC<{
           <div
             key={player.id}
             style={{
-              padding: "15px 20px",
-              marginBottom: "12px",
+              padding: "12px 15px",
+              marginBottom: "10px",
               background: `linear-gradient(135deg, ${player.color} 0%, ${player.color}dd 100%)`,
-              borderRadius: "12px",
+              borderRadius: "10px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
               fontWeight: "bold",
-              fontSize: "18px",
+              fontSize: "15px",
               border: "3px solid #333",
-              boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+              boxShadow: "0 3px 6px rgba(0,0,0,0.2)",
               color: "#FFF",
               textShadow: "1px 1px 2px rgba(0,0,0,0.5)",
             }}
           >
             <span>
               <span style={{ 
-                fontSize: "24px", 
-                marginRight: "10px",
+                fontSize: "20px", 
+                marginRight: "8px",
               }}>
                 {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `${index + 1}.`}
               </span>
               {player.name} {player.isBot && "🤖"}
             </span>
-            <span style={{ fontSize: "22px" }}>
-              💰 {player.money} EP
+            <span style={{ fontSize: "16px" }}>
+              💰 {player.money}
             </span>
           </div>
         ))}
@@ -635,7 +701,7 @@ const EnhancedLeaderboard: React.FC<{
 
       {/* Camel Race Leaderboard */}
       <div style={{
-        padding: "25px",
+        padding: "20px",
         backgroundColor: "#FFF",
         borderRadius: "15px",
         border: "4px solid #8B4513",
@@ -644,8 +710,8 @@ const EnhancedLeaderboard: React.FC<{
         <h2 style={{ 
           textAlign: "center", 
           color: "#8B4513",
-          marginBottom: "20px",
-          fontSize: "28px",
+          marginBottom: "15px",
+          fontSize: "22px",
         }}>
           🏁 Race Positions 🏁
         </h2>
@@ -653,29 +719,29 @@ const EnhancedLeaderboard: React.FC<{
           <div
             key={camel.color}
             style={{
-              padding: "15px 20px",
-              marginBottom: "12px",
+              padding: "12px 15px",
+              marginBottom: "10px",
               background: `linear-gradient(135deg, ${camel.color} 0%, ${camel.color}dd 100%)`,
-              borderRadius: "12px",
+              borderRadius: "10px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
               fontWeight: "bold",
-              fontSize: "18px",
+              fontSize: "15px",
               border: "3px solid #333",
-              boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+              boxShadow: "0 3px 6px rgba(0,0,0,0.2)",
               color: camel.color === "yellow" ? "#000" : "#FFF",
               textShadow: camel.color === "yellow" ? "none" : "1px 1px 2px rgba(0,0,0,0.5)",
             }}
           >
             <span>
-              <span style={{ fontSize: "24px", marginRight: "10px" }}>
+              <span style={{ fontSize: "20px", marginRight: "8px" }}>
                 {index + 1}.
               </span>
               🐪 {camel.color.toUpperCase()}
             </span>
-            <span style={{ fontSize: "18px" }}>
-              Position: {camel.position + 1}
+            <span style={{ fontSize: "14px" }}>
+              Pos: {camel.position + 1}
             </span>
           </div>
         ))}
@@ -697,7 +763,8 @@ const BettingPanel: React.FC<{
       backgroundColor: "#FFF",
       borderRadius: "15px",
       border: "3px solid #8B4513",
-      maxWidth: "900px",
+      maxWidth: "1000px",
+      boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
     }}>
       <h3 style={{ 
         textAlign: "center", 
@@ -705,7 +772,7 @@ const BettingPanel: React.FC<{
         marginBottom: "20px",
         fontSize: "24px",
       }}>
-        Place Your Bet
+        🎫 Place Your Bet 🎫
       </h3>
       <div style={{ 
         display: "flex", 
@@ -733,16 +800,19 @@ const BettingPanel: React.FC<{
                 cursor: disabled || !available ? "not-allowed" : "pointer",
                 fontWeight: "bold",
                 opacity: available ? 1 : 0.5,
-                transition: "transform 0.2s",
+                transition: "transform 0.2s, box-shadow 0.2s",
                 minWidth: "150px",
+                boxShadow: available && !disabled ? "0 4px 8px rgba(0,0,0,0.3)" : "none",
               }}
               onMouseEnter={(e) => {
                 if (!disabled && available) {
                   e.currentTarget.style.transform = "scale(1.1)";
+                  e.currentTarget.style.boxShadow = "0 6px 12px rgba(0,0,0,0.4)";
                 }
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = "scale(1)";
+                e.currentTarget.style.boxShadow = available && !disabled ? "0 4px 8px rgba(0,0,0,0.3)" : "none";
               }}
             >
               🐪 {color.toUpperCase()}<br/>
@@ -1305,6 +1375,17 @@ const CamelRaceGame: React.FC = () => {
             transform: scale(1.05);
           }
         }
+        @keyframes shimmer {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
       `}</style>
 
       <h1 style={{
@@ -1334,7 +1415,7 @@ const CamelRaceGame: React.FC = () => {
 
       <div style={{
         display: "flex",
-        justifyContent: "space-around",
+        justifyContent: "center",
         marginBottom: "20px",
         padding: "20px",
         backgroundColor: "#FFF",
@@ -1343,6 +1424,8 @@ const CamelRaceGame: React.FC = () => {
         flexWrap: "wrap",
         gap: "15px",
         boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+        maxWidth: "900px",
+        margin: "0 auto 20px auto",
       }}>
         <div style={{ fontSize: "24px", fontWeight: "bold", color: "#8B4513" }}>
           Leg: {gameState.leg}
@@ -1364,29 +1447,56 @@ const CamelRaceGame: React.FC = () => {
           fontWeight: "bold",
           marginBottom: "25px",
           boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+          maxWidth: "900px",
+          margin: "0 auto 25px auto",
         }}>
           {message}
         </div>
       )}
 
-      <Track 
-        camels={gameState.camels}
-        spectatorTiles={gameState.spectatorTiles}
-        onTileClick={placingTile ? handleTileClick : undefined}
-        clickablePositions={!!placingTile}
-      />
+      {/* Main Game Layout - Board Center, Leaderboard Right */}
+      <div style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        gap: "30px",
+        maxWidth: "1400px",
+        margin: "0 auto 30px auto",
+        flexWrap: "wrap",
+      }}>
+        {/* Board and Controls */}
+        <div style={{
+          flex: "1",
+          minWidth: "900px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}>
+          <Track 
+            camels={gameState.camels}
+            spectatorTiles={gameState.spectatorTiles}
+            onTileClick={placingTile ? handleTileClick : undefined}
+            clickablePositions={!!placingTile}
+          />
 
-      <CenteredDiceRoller
-        availableDice={gameState.availableDice}
-        onRoll={() => handleAction("pyramid_ticket")}
-        disabled={!isLocalPlayerTurn}
-        currentPlayerName={currentPlayer.name}
-      />
+          <CenteredDiceRoller
+            availableDice={gameState.availableDice}
+            onRoll={() => handleAction("pyramid_ticket")}
+            disabled={!isLocalPlayerTurn}
+            currentPlayerName={currentPlayer.name}
+          />
+        </div>
 
-      <EnhancedLeaderboard 
-        players={gameState.players}
-        camels={gameState.camels}
-      />
+        {/* Leaderboard on the Right */}
+        <div style={{
+          flex: "0 0 auto",
+        }}>
+          <EnhancedLeaderboard 
+            players={gameState.players}
+            camels={gameState.camels}
+          />
+        </div>
+      </div>
 
       {/* Spectator Tile Placement */}
       <div style={{
@@ -1395,7 +1505,8 @@ const CamelRaceGame: React.FC = () => {
         backgroundColor: "#FFF",
         borderRadius: "15px",
         border: "3px solid #8B4513",
-        maxWidth: "900px",
+        maxWidth: "1000px",
+        boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
       }}>
         <h3 style={{ 
           textAlign: "center", 
