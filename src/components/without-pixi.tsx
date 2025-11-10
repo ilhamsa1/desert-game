@@ -1,52 +1,49 @@
 import React, { useCallback, useEffect, useState } from "react";
 
-// Start game
+// Enhanced Camel Up Game
 
 type Camel = {
   color: string;
   position: number;
-  stack: number;
-  direction: "left" | "right";
+  stackOrder: number; // Order in stack (0 = bottom, higher = top)
+  direction: "forward" | "backward";
+};
+
+type DesertTile = {
+  position: number;
+  type: "oasis" | "mirage";
+  owner: string;
+};
+
+// Future enhancement: Race betting
+// type Bet = {
+//   player: string;
+//   camel: string;
+//   type: "leg" | "winner" | "loser";
+//   value: number;
+// };
+
+type Player = {
+  name: string;
+  money: number;
+  color: string;
 };
 
 type GameState = {
   camels: Camel[];
-  track: (null | string)[];
+  track: number[];
   dice: string[];
   winner: string | null;
-  crazyDice: string[];
+  desertTiles: DesertTile[];
+  players: Player[];
+  currentPlayer: number;
+  round: number;
+  diceRolledThisRound: string[];
+  legBets: { [key: string]: number[] }; // camel color -> array of bet values [5,3,2...]
 };
 
-const DEFAULT_ROUND_STATE = {
-  round: 0,
-  dice: [
-    { color: "red", diceValue: 0 },
-    { color: "blue", diceValue: 0 },
-    { color: "green", diceValue: 0 },
-    { color: "yellow", diceValue: 0 },
-    { color: "purple", diceValue: 0 },
-    { color: "silver", diceValue: 0 },
-  ],
-  mainDice: [
-    { color: "red", steps: 0 },
-    { color: "blue", steps: 0 },
-    { color: "green", steps: 0 },
-    { color: "yellow", steps: 0 },
-    { color: "purple", steps: 0 },
-  ],
-  crazyDice: [
-    {
-      color: "black",
-      steps: 0,
-    },
-    {
-      color: "white",
-      steps: 0,
-    },
-  ],
-  activeDice: [],
-  maxActiveDice: 5,
-};
+// Legacy code - no longer used
+// const DEFAULT_ROUND_STATE = { ... };
 
 const rollDice = (dice: string[]): { color: string; steps: number } => {
   const randomIndex = Math.floor(Math.random() * dice.length);
@@ -62,69 +59,59 @@ const rollDice = (dice: string[]): { color: string; steps: number } => {
 
 const moveCamel = (
   camels: Camel[],
-  rollResult: { color: string; steps: number }
+  rollResult: { color: string; steps: number },
+  desertTiles: DesertTile[]
 ): Camel[] => {
-  //--- Move camel to stack
   const selectedCamel = camels.find(
     (camel) => camel.color === rollResult.color
   );
   if (!selectedCamel) return camels;
 
-  const nextCamelsWillHaveSamePosition = camels.filter((camel) => {
-    if (selectedCamel?.direction === 'left') {
-      return camel.position === selectedCamel?.position - rollResult.steps;
-    }
-    return camel.position === selectedCamel?.position + rollResult.steps;
-  });
+  // Find all camels on top of the selected camel (they move together)
+  const camelsOnSamePosition = camels.filter(
+    (camel) => camel.position === selectedCamel.position
+  );
+  const movingCamels = camelsOnSamePosition.filter(
+    (camel) => camel.stackOrder >= selectedCamel.stackOrder
+  );
 
-  let newStack = 0;
-  if (nextCamelsWillHaveSamePosition.length > 0) {
-    newStack = (nextCamelsWillHaveSamePosition.length - 1) + 1;
+  // Calculate new position
+  const direction = selectedCamel.direction === "forward" ? 1 : -1;
+  let newPosition = selectedCamel.position + (rollResult.steps * direction);
+
+  // Check for desert tiles at the new position
+  const desertTile = desertTiles.find(tile => tile.position === newPosition);
+  if (desertTile) {
+    // Oasis moves forward, Mirage moves backward
+    newPosition += desertTile.type === "oasis" ? 1 : -1;
   }
 
-  //--- End move camel to stack
-
-  //--- Camel Follow the camel in same stack
-  const camelsHaveSamePositionButHightStack = camels.filter(
-    (camel) =>
-      camel.position === selectedCamel.position &&
-      camel.stack > selectedCamel.stack
+  // Find camels already at the destination
+  const camelsAtDestination = camels.filter(
+    (camel) => camel.position === newPosition && !movingCamels.includes(camel)
   );
-  //--- End Camel Follow the camel in same stack
+  
+  const maxStackAtDestination = camelsAtDestination.length > 0
+    ? Math.max(...camelsAtDestination.map(c => c.stackOrder))
+    : -1;
 
+  // Move the camels
   return camels.map((camel) => {
-    const camelHaveSamePositionButHightStackIndex =
-      camelsHaveSamePositionButHightStack.findIndex(
-        (currentCamel: Camel) => currentCamel.color === camel.color
-      );
-
-      console.log(camelHaveSamePositionButHightStackIndex, 'camelsHaveSamePositionButHightStack', camel.color)
-      let newPosition  = camel.position + rollResult.steps
-      // TODO: 16 is track length
-      if (selectedCamel.direction === 'left' && camel.color === selectedCamel.color ) { 
-        newPosition = camel.position - rollResult.steps;
-      }
-
-      if (selectedCamel.direction === 'left' && camelHaveSamePositionButHightStackIndex >= 0) { 
-        newPosition = camel.position - rollResult.steps;
-      }
-
-    if (camel.color === rollResult.color) {
+    const movingCamelIndex = movingCamels.findIndex(c => c.color === camel.color);
+    
+    if (movingCamelIndex >= 0) {
+      // This camel is moving
+      const relativeStackPosition = camel.stackOrder - selectedCamel.stackOrder;
       return {
         ...camel,
-        // Move camel position
         position: newPosition,
-        stack: newStack,
+        stackOrder: maxStackAtDestination + 1 + relativeStackPosition,
       };
-    } else if (camelHaveSamePositionButHightStackIndex >= 0) {
-      return {
-        ...camel,
-        // Move camel position
-        position: newPosition,
-        stack: newStack + (camelHaveSamePositionButHightStackIndex + 1),
-      };
+    } else if (camel.position === selectedCamel.position && camel.stackOrder < selectedCamel.stackOrder) {
+      // Camels below the moved camel need to adjust their stack order
+      return camel;
     }
-
+    
     return camel;
   });
 };
@@ -148,65 +135,81 @@ const moveCamel = (
 // };
 
 const checkWinner = (camels: Camel[], trackLength: number): string | null => {
+  // Forward camels win if they reach or exceed the track length
+  const forwardWinners = camels.filter(
+    (camel) => camel.position >= trackLength && camel.direction === "forward"
+  );
 
-  let winner = null;
-
-  const normalCammelWin = camels
-    .filter((camel) => camel.position > trackLength && camel.direction === 'right')
-    .sort((a, b) => b.stack - a.stack)[0];
-
-  winner = normalCammelWin
-
-  if (!winner) {
-    const crazyCammelWin = camels 
-    .filter((camel) => camel.position <= 0 && camel.direction === 'left')
-    .sort((a, b) => b.stack - a.stack)[0];
-
-    winner = crazyCammelWin
+  if (forwardWinners.length > 0) {
+    // Find the camel with highest position, then highest stack
+    const sorted = forwardWinners.sort((a, b) => {
+      if (a.position !== b.position) return b.position - a.position;
+      return b.stackOrder - a.stackOrder;
+    });
+    return sorted[0].color;
   }
 
+  // Backward camels win if they reach position 0 or below
+  const backwardWinners = camels.filter(
+    (camel) => camel.position <= 0 && camel.direction === "backward"
+  );
 
-  return winner ? winner.color : null;
+  if (backwardWinners.length > 0) {
+    const sorted = backwardWinners.sort((a, b) => {
+      if (a.position !== b.position) return a.position - b.position;
+      return b.stackOrder - a.stackOrder;
+    });
+    return sorted[0].color;
+  }
+
+  return null;
 };
 
-const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
+const getLeaderboard = (camels: Camel[]): Camel[] => {
+  // Sort camels by position and stack order
+  return [...camels].sort((a, b) => {
+    if (a.position !== b.position) {
+      // Forward camels: higher position is better
+      // Backward camels: lower position is better
+      if (a.direction === "forward") return b.position - a.position;
+      return a.position - b.position;
+    }
+    // Same position: higher stack is better
+    return b.stackOrder - a.stackOrder;
+  });
+};
+
+const Track: React.FC<{ 
+  camels: Camel[];
+  desertTiles: DesertTile[];
+  onPlaceDesertTile?: (position: number) => void;
+}> = ({ camels, desertTiles, onPlaceDesertTile }) => {
   const trackWidth = 1000;
   const trackHeight = 500;
   const totalPositions = 16;
   const positionPerSide = totalPositions / 4;
 
-  const getCamelPosition = (camel: Camel) => {
-    let position = camel.position;
+  const getCamelPosition = (position: number) => {
+    let displayPosition = position;
+    
+    // Keep position within track bounds for display
+    if (displayPosition < 0) displayPosition = 0;
+    if (displayPosition >= totalPositions) displayPosition = totalPositions - 1;
 
-    // Adjust position based on direction
-    if (camel.direction === 'right') {
-      position = (position % totalPositions) + 1;
-    } else if (camel.direction === 'left') {
-      position = (position % totalPositions) + 1 ;
-    }
-    console.log(position, '----------', camel.color, position, totalPositions)
+    let x = 0, y = 0;
 
-    console.log(  (position % totalPositions) + 1, position % totalPositions)
-
-    let x = 0,
+    if (displayPosition < positionPerSide) {
+      x = (trackWidth / positionPerSide) * displayPosition;
       y = 0;
-
-    if (position <= positionPerSide) {
-      x = (trackWidth / positionPerSide) * (position - 1);
-      y = 0;
-    } else if (position <= positionPerSide * 2) {
+    } else if (displayPosition < positionPerSide * 2) {
       x = trackWidth;
-      y = (trackHeight / positionPerSide) * (position - positionPerSide - 1);
-    } else if (position <= positionPerSide * 3) {
-      x =
-        trackWidth -
-        (trackWidth / positionPerSide) * (position - positionPerSide * 2 - 1);
+      y = (trackHeight / positionPerSide) * (displayPosition - positionPerSide);
+    } else if (displayPosition < positionPerSide * 3) {
+      x = trackWidth - (trackWidth / positionPerSide) * (displayPosition - positionPerSide * 2);
       y = trackHeight;
     } else {
       x = 0;
-      y =
-        trackHeight -
-        (trackHeight / positionPerSide) * (position - positionPerSide * 3 - 1);
+      y = trackHeight - (trackHeight / positionPerSide) * (displayPosition - positionPerSide * 3);
     }
 
     return { x: x - 25, y: y - 25 };
@@ -219,70 +222,89 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
         width: `${trackWidth}px`,
         height: `${trackHeight}px`,
         margin: "0 auto",
-        border: "2px solid #999",
-        backgroundColor: "#f0f0f0",
+        border: "4px solid #8B4513",
+        backgroundColor: "#F4A460",
+        borderRadius: "10px",
+        boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
       }}
     >
+      {/* Track positions */}
       {Array.from({ length: totalPositions }).map((_, index) => {
-        let x = 0,
-          y = 0;
-
-        if (index < positionPerSide) {
-          x = (trackWidth / positionPerSide) * index;
-          y = 0;
-        } else if (index < positionPerSide * 2) {
-          x = trackWidth;
-          y = (trackHeight / positionPerSide) * (index - positionPerSide);
-        } else if (index < positionPerSide * 3) {
-          x =
-            trackWidth -
-            (trackWidth / positionPerSide) * (index - positionPerSide * 2);
-          y = trackHeight;
-        } else {
-          x = 0;
-          y =
-            trackHeight -
-            (trackHeight / positionPerSide) * (index - positionPerSide * 3);
-        }
+        const { x, y } = getCamelPosition(index);
+        const desertTile = desertTiles.find(tile => tile.position === index);
 
         return (
           <div
             key={index}
+            onClick={() => onPlaceDesertTile?.(index)}
             style={{
               position: "absolute",
-              left: `${x - 10}px`,
-              top: `${y - 10}px`,
-              width: "20px",
-              height: "20px",
-              backgroundColor: index === 0 ? "#879123" : "#fff",
-              border: "1px solid #999",
+              left: `${x + 15}px`,
+              top: `${y + 15}px`,
+              width: "60px",
+              height: "60px",
+              backgroundColor: index === 0 ? "#4CAF50" : "#FFF8DC",
+              border: "2px solid #8B4513",
+              borderRadius: "8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "12px",
+              fontWeight: "bold",
+              color: "#333",
+              cursor: onPlaceDesertTile ? "pointer" : "default",
+              transition: "transform 0.2s",
             }}
-          ></div>
+            onMouseEnter={(e) => {
+              if (onPlaceDesertTile) {
+                e.currentTarget.style.transform = "scale(1.1)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
+          >
+            {index + 1}
+            {desertTile && (
+              <div style={{
+                position: "absolute",
+                bottom: "2px",
+                fontSize: "20px"
+              }}>
+                {desertTile.type === "oasis" ? "🌴" : "🌊"}
+              </div>
+            )}
+          </div>
         );
       })}
+      
+      {/* Camels */}
       {camels.map((camel) => {
-        const { x, y } = getCamelPosition(camel);
+        const { x, y } = getCamelPosition(camel.position);
         return (
           <div
             key={camel.color}
             style={{
               position: "absolute",
-              left: `${x}px`,
-              top: `${y + camel.stack * 20}px`,
-              width: "50px",
-              height: "50px",
+              left: `${x + 15}px`,
+              top: `${y - 5 - (camel.stackOrder * 35)}px`,
+              width: "60px",
+              height: "40px",
               backgroundColor: camel.color,
-              borderRadius: "50%",
+              border: "3px solid #333",
+              borderRadius: "20px 20px 10px 10px",
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              color: camel.color === 'white'|| camel.color === 'yellow'  ? 'black' : 'white',
+              color: camel.color === 'white' || camel.color === 'yellow' ? 'black' : 'white',
               fontWeight: "bold",
-              zIndex: camel.stack,
-              transition: "left 0.5s, top 0.5s",
+              fontSize: "10px",
+              zIndex: 10 + camel.stackOrder,
+              transition: "all 0.6s ease-in-out",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
             }}
           >
-            {camel.color}
+            {camel.direction === "backward" ? "←" : "→"}
           </div>
         );
       })}
@@ -290,29 +312,159 @@ const Track: React.FC<{ camels: Camel[] }> = ({ camels }) => {
   );
 };
 
-const PlayerDashboard: React.FC<{ onPlaceBet: (color: string) => void }> = ({
-  onPlaceBet,
-}) => {
+const DicePyramid: React.FC<{
+  diceRolledThisRound: string[];
+  availableDice: string[];
+}> = ({ diceRolledThisRound, availableDice }) => {
+  const allDice = ["red", "blue", "green", "yellow", "purple"];
+  
   return (
-    <div style={{ marginTop: "20px" }}>
-      {["red", "blue", "green"].map((color) => (
+    <div style={{
+      padding: "20px",
+      backgroundColor: "#8B4513",
+      borderRadius: "15px",
+      border: "4px solid #654321",
+      boxShadow: "0 6px 12px rgba(0,0,0,0.4)",
+      textAlign: "center",
+      margin: "20px auto",
+      maxWidth: "400px"
+    }}>
+      <h3 style={{ color: "#FFE66D", marginBottom: "15px" }}>🎲 Dice Pyramid 🎲</h3>
+      <div style={{
+        display: "flex",
+        justifyContent: "center",
+        gap: "10px",
+        flexWrap: "wrap"
+      }}>
+        {allDice.map(color => {
+          const isRolled = diceRolledThisRound.includes(color);
+          return (
+            <div
+              key={color}
+              style={{
+                width: "50px",
+                height: "50px",
+                backgroundColor: isRolled ? "#333" : color,
+                border: `3px solid ${isRolled ? "#666" : "#FFF"}`,
+                borderRadius: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "24px",
+                color: color === "yellow" ? "black" : "white",
+                opacity: isRolled ? 0.3 : 1,
+                transition: "all 0.3s ease",
+                boxShadow: isRolled ? "inset 0 2px 4px rgba(0,0,0,0.5)" : "0 2px 4px rgba(255,255,255,0.3)"
+              }}
+            >
+              {isRolled ? "✓" : "🎲"}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ color: "#FFE66D", marginTop: "10px", fontSize: "14px" }}>
+        Remaining: {availableDice.length}/5
+      </div>
+    </div>
+  );
+};
+
+const PlayerDashboard: React.FC<{ 
+  players: Player[];
+  currentPlayer: number;
+  legBets: { [key: string]: number[] };
+  onPlaceLegBet: (camelColor: string) => void;
+  onPlaceDesertTile: (type: "oasis" | "mirage") => void;
+}> = ({ players, currentPlayer, legBets, onPlaceLegBet, onPlaceDesertTile }) => {
+  const camelColors = ["red", "blue", "green", "yellow", "purple"];
+  
+  return (
+    <div style={{ 
+      marginTop: "20px",
+      padding: "20px",
+      backgroundColor: "#f9f9f9",
+      borderRadius: "10px",
+      border: "2px solid #ddd"
+    }}>
+      <h3>Players</h3>
+      <div style={{ display: "flex", gap: "15px", marginBottom: "20px" }}>
+        {players.map((player, idx) => (
+          <div
+            key={player.name}
+            style={{
+              padding: "10px",
+              backgroundColor: idx === currentPlayer ? player.color : "#fff",
+              border: `3px solid ${player.color}`,
+              borderRadius: "8px",
+              fontWeight: idx === currentPlayer ? "bold" : "normal",
+            }}
+          >
+            <div>{player.name}</div>
+            <div>💰 ${player.money}</div>
+          </div>
+        ))}
+      </div>
+
+      <h3>Leg Bets Available</h3>
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        {camelColors.map((color) => (
+          <div key={color} style={{ textAlign: "center" }}>
+            <button
+              onClick={() => onPlaceLegBet(color)}
+              style={{
+                padding: "15px 20px",
+                fontSize: "16px",
+                backgroundColor: color,
+                color: color === "yellow" ? "black" : "white",
+                border: "3px solid #333",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              {color.toUpperCase()}
+            </button>
+            <div style={{ marginTop: "5px", fontSize: "12px" }}>
+              Bets: {legBets[color]?.length || 0}
+              {legBets[color]?.length > 0 && (
+                <div>Next: ${legBets[color][legBets[color].length - 1]}</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <h3 style={{ marginTop: "20px" }}>Desert Tiles</h3>
+      <div style={{ display: "flex", gap: "10px" }}>
         <button
-          key={color}
-          onClick={() => onPlaceBet(color)}
+          onClick={() => onPlaceDesertTile("oasis")}
           style={{
-            margin: "5px",
             padding: "10px 20px",
-            fontSize: "16px",
-            backgroundColor: color,
+            fontSize: "18px",
+            backgroundColor: "#4CAF50",
             color: "white",
-            border: "none",
-            borderRadius: "5px",
+            border: "2px solid #333",
+            borderRadius: "8px",
             cursor: "pointer",
           }}
         >
-          Bet on {color} Camel
+          🌴 Place Oasis (+1)
         </button>
-      ))}
+        <button
+          onClick={() => onPlaceDesertTile("mirage")}
+          style={{
+            padding: "10px 20px",
+            fontSize: "18px",
+            backgroundColor: "#2196F3",
+            color: "white",
+            border: "2px solid #333",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+        >
+          🌊 Place Mirage (-1)
+        </button>
+      </div>
     </div>
   );
 };
@@ -320,30 +472,36 @@ const PlayerDashboard: React.FC<{ onPlaceBet: (color: string) => void }> = ({
 const CamelRaceGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     camels: [
-      { color: "red", position: 0, stack: 0, direction: "right" },
-      { color: "blue", position: 0, stack: 0, direction: "right" },
-      { color: "green", position: 0, stack: 0, direction: "right" },
-      { color: "yellow", position: 0, stack: 0, direction: "right" },
-      { color: "purple", position: 0, stack: 0, direction: "right" },
-      { color: "white", position: 16, stack: 0, direction: "left" },
-      { color: "black", position: 16, stack: 0, direction: "left" },
+      { color: "red", position: 0, stackOrder: 0, direction: "forward" },
+      { color: "blue", position: 0, stackOrder: 1, direction: "forward" },
+      { color: "green", position: 0, stackOrder: 2, direction: "forward" },
+      { color: "yellow", position: 0, stackOrder: 3, direction: "forward" },
+      { color: "purple", position: 0, stackOrder: 4, direction: "forward" },
     ],
-    track: Array(16).fill(null),
-    dice: ["red", "blue", "green", "yellow", "purple", "black", 'white'],
-    crazyDice: ["black", "white"],
+    track: Array.from({ length: 16 }, (_, i) => i),
+    dice: ["red", "blue", "green", "yellow", "purple"],
     winner: null,
+    desertTiles: [],
+    players: [
+      { name: "Player 1", money: 3, color: "#FF6B6B" },
+      { name: "Player 2", money: 3, color: "#4ECDC4" },
+      { name: "Player 3", money: 3, color: "#FFE66D" },
+    ],
+    currentPlayer: 0,
+    round: 1,
+    diceRolledThisRound: [],
+    legBets: {
+      red: [5, 3, 2],
+      blue: [5, 3, 2],
+      green: [5, 3, 2],
+      yellow: [5, 3, 2],
+      purple: [5, 3, 2],
+    },
   });
 
-  const [roundState, setRoundState] = useState<{
-    round: number;
-    dice: { color: string; diceValue: number }[];
-    mainDice: { color: string; steps: number }[];
-    crazyDice: { color: string; steps: number }[];
-    activeDice: { diceValue: number; color: string }[];
-    maxActiveDice: number;
-  }>(DEFAULT_ROUND_STATE);
-
   const [isGameRunning, setIsGameRunning] = useState(false);
+  const [message, setMessage] = useState<string>("");
+  const [placingDesertTile, setPlacingDesertTile] = useState<"oasis" | "mirage" | null>(null);
 
   // const [isGameRunning, setIsGameRunning] = useState(false);
 
@@ -409,80 +567,175 @@ const CamelRaceGame: React.FC = () => {
   //   }));
   // }, [gameState.camels, gameState.dice, roundState.mainDice]);
 
-  const handlePlaceBet = (color: string) => {
-    console.log(`Player bet on ${color} camel`);
+  const nextPlayer = () => {
+    setGameState((prev) => ({
+      ...prev,
+      currentPlayer: (prev.currentPlayer + 1) % prev.players.length,
+    }));
   };
 
-  const handleRoleDice = useCallback(() => {
-    // const dice = roundState.dice.map((dice) => {
-    //   const roll = rollDiceOnly();
-    //   return { ...dice, diceValue: roll.steps };
-    // });
+  const handleRollDice = useCallback(() => {
+    if (gameState.winner) return;
 
-    if (roundState.activeDice.length >= roundState.maxActiveDice) {
-      alert("You can not roll more than 5 dice");
+    const availableDice = gameState.dice.filter(
+      (color) => !gameState.diceRolledThisRound.includes(color)
+    );
+
+    if (availableDice.length === 0) {
+      // Start new round
+      setGameState((prev) => ({
+        ...prev,
+        round: prev.round + 1,
+        diceRolledThisRound: [],
+        legBets: {
+          red: [5, 3, 2],
+          blue: [5, 3, 2],
+          green: [5, 3, 2],
+          yellow: [5, 3, 2],
+          purple: [5, 3, 2],
+        },
+      }));
+      setMessage("New round started!");
       return;
     }
 
-    const activeDiceColors = roundState.activeDice.map(
-      (activeDice) => activeDice.color
-    );
+    const rollResult = rollDice(availableDice);
+    const updatedCamels = moveCamel(gameState.camels, rollResult, gameState.desertTiles);
+    const winner = checkWinner(updatedCamels, gameState.track.length);
 
-    const inActiveDiceColors = gameState.dice.filter(
-      (dice) => !activeDiceColors.includes(dice)
-    );
-
-    const selectedDice = rollDice(inActiveDiceColors);
-
-    setRoundState((prevState) => ({
-      ...prevState,
-      activeDice: [
-        ...prevState.activeDice,
-        {
-          diceValue: selectedDice.steps,
-          color: selectedDice.color,
-        },
-      ],
-    }));
-
-    const updatedCamels = moveCamel(gameState.camels, selectedDice);
-
-    const winner = checkWinner(updatedCamels, gameState.track.length - 1);
-
-    setGameState((prevState) => ({
-      ...prevState,
+    setGameState((prev) => ({
+      ...prev,
       camels: updatedCamels,
+      diceRolledThisRound: [...prev.diceRolledThisRound, rollResult.color],
       winner,
     }));
-  }, [gameState.camels, gameState.dice, gameState.track.length, roundState.activeDice, roundState.maxActiveDice])
 
-  const handleNewRound = () => {
-    setRoundState((prevState) => ({
-      ...DEFAULT_ROUND_STATE,
-      round: prevState.round + 1,
+    // Award money for rolling dice
+    setGameState((prev) => ({
+      ...prev,
+      players: prev.players.map((p, idx) =>
+        idx === prev.currentPlayer ? { ...p, money: p.money + 1 } : p
+      ),
     }));
+
+    setMessage(`${rollResult.color.toUpperCase()} camel moved ${rollResult.steps} steps!`);
+    nextPlayer();
+  }, [gameState]);
+
+  const handlePlaceLegBet = (camelColor: string) => {
+    if (gameState.winner || gameState.legBets[camelColor].length === 0) return;
+
+    const betValue = gameState.legBets[camelColor].pop()!;
+    
+    setGameState((prev) => ({
+      ...prev,
+      legBets: {
+        ...prev.legBets,
+        [camelColor]: prev.legBets[camelColor].slice(0, -1),
+      },
+    }));
+
+    // Store bet for payout at end of round (simplified - just award money now)
+    const currentLeader = getLeaderboard(gameState.camels)[0];
+    if (currentLeader.color === camelColor) {
+      setGameState((prev) => ({
+        ...prev,
+        players: prev.players.map((p, idx) =>
+          idx === prev.currentPlayer ? { ...p, money: p.money + betValue } : p
+        ),
+      }));
+      setMessage(`Good bet! Won $${betValue}!`);
+    } else {
+      setGameState((prev) => ({
+        ...prev,
+        players: prev.players.map((p, idx) =>
+          idx === prev.currentPlayer ? { ...p, money: p.money - 1 } : p
+        ),
+      }));
+      setMessage(`Bet didn't pay off. Lost $1`);
+    }
+    
+    nextPlayer();
+  };
+
+  const handlePlaceDesertTile = (type: "oasis" | "mirage") => {
+    setPlacingDesertTile(type);
+    setMessage(`Click on a track position to place your ${type}...`);
+  };
+
+  const handleTrackClick = (position: number) => {
+    if (!placingDesertTile || position === 0) return;
+
+    // Check if position is valid (no camels, no other tiles)
+    const hasCamel = gameState.camels.some(c => c.position === position);
+    const hasTile = gameState.desertTiles.some(t => t.position === position);
+
+    if (hasCamel || hasTile) {
+      setMessage("Cannot place tile here!");
+      return;
+    }
+
+    setGameState((prev) => ({
+      ...prev,
+      desertTiles: [
+        ...prev.desertTiles.filter(t => t.owner !== prev.players[prev.currentPlayer].name),
+        {
+          position,
+          type: placingDesertTile,
+          owner: prev.players[prev.currentPlayer].name,
+        },
+      ],
+      players: prev.players.map((p, idx) =>
+        idx === prev.currentPlayer ? { ...p, money: p.money + 1 } : p
+      ),
+    }));
+
+    setMessage(`${placingDesertTile} placed at position ${position + 1}!`);
+    setPlacingDesertTile(null);
+    nextPlayer();
+  };
+
+  const handleReset = () => {
+    setGameState({
+      camels: [
+        { color: "red", position: 0, stackOrder: 0, direction: "forward" },
+        { color: "blue", position: 0, stackOrder: 1, direction: "forward" },
+        { color: "green", position: 0, stackOrder: 2, direction: "forward" },
+        { color: "yellow", position: 0, stackOrder: 3, direction: "forward" },
+        { color: "purple", position: 0, stackOrder: 4, direction: "forward" },
+      ],
+      track: Array.from({ length: 16 }, (_, i) => i),
+      dice: ["red", "blue", "green", "yellow", "purple"],
+      winner: null,
+      desertTiles: [],
+      players: gameState.players.map(p => ({ ...p, money: 3 })),
+      currentPlayer: 0,
+      round: 1,
+      diceRolledThisRound: [],
+      legBets: {
+        red: [5, 3, 2],
+        blue: [5, 3, 2],
+        green: [5, 3, 2],
+        yellow: [5, 3, 2],
+        purple: [5, 3, 2],
+      },
+    });
+    setMessage("");
+    setIsGameRunning(false);
   };
 
   useEffect(() => {
-    if (!isGameRunning) return;
+    if (!isGameRunning || gameState.winner) {
+      setIsGameRunning(false);
+      return;
+    }
   
     const interval = setInterval(() => {
-      console.log('gggggg', gameState.winner);
-      if (!gameState.winner) {
-        console.log('Executing handleRoleDice');
-        if (roundState.activeDice.length >= roundState.maxActiveDice) {
-          handleNewRound()
-        } else {
-          handleRoleDice()
-        }
-      } else {
-        setIsGameRunning(false)
-        clearInterval(interval)
-      }
+      handleRollDice();
     }, 1000);
   
-    return () => clearInterval(interval)
-  }, [gameState.winner, handleRoleDice, isGameRunning, roundState.activeDice.length, roundState.maxActiveDice]);
+    return () => clearInterval(interval);
+  }, [isGameRunning, gameState.winner, handleRollDice]);
   
   // const roleCrazyDice = () => {
   //   const crazyDice = roundState.crazyDice.map((dice) => {
@@ -510,128 +763,193 @@ const CamelRaceGame: React.FC = () => {
 
 
 
+  const leaderboard = getLeaderboard(gameState.camels);
+
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-      <h1 style={{ textAlign: "center" }}>Camel Race Game</h1>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          margin: "2rem 0",
-        }}
-      >
-        {Array.from({ length: roundState.maxActiveDice }).map(
-          (_, diceIndex) => {
-            const activeDice = roundState.activeDice.find(
-              (_, activeIndex) => activeIndex === diceIndex
-            );
+    <div style={{ 
+      padding: "20px", 
+      fontFamily: "Arial, sans-serif",
+      backgroundColor: "#FFF5E6",
+      minHeight: "100vh" 
+    }}>
+      <h1 style={{ 
+        textAlign: "center",
+        color: "#8B4513",
+        fontSize: "48px",
+        textShadow: "2px 2px 4px rgba(0,0,0,0.3)"
+      }}>
+        🐪 Camel Up Racing Game 🐪
+      </h1>
 
-            const color = activeDice ? activeDice.color : "#bbb";
-            const diceValue = activeDice ? activeDice.diceValue : 0;
-
-            return (
-              <div
-                style={{
-                  width: "100px",
-                  height: "100px",
-                  backgroundColor: color,
-                  color:  color === 'black' ? 'white' : 'black',
-                }}
-                key={diceIndex}
-              >
-                <h3>{diceValue}</h3>
-              </div>
-            );
-          }
-        )}
+      <div style={{ 
+        display: "flex", 
+        justifyContent: "space-around",
+        marginBottom: "20px",
+        padding: "15px",
+        backgroundColor: "#FFF",
+        borderRadius: "10px",
+        border: "2px solid #8B4513"
+      }}>
+        <div style={{ fontSize: "20px", fontWeight: "bold" }}>
+          Round: {gameState.round}
+        </div>
+        <div style={{ fontSize: "20px" }}>
+          Dice Rolled: {gameState.diceRolledThisRound.length}/5
+        </div>
+        <div style={{ fontSize: "20px", fontWeight: "bold", color: "#FF6B6B" }}>
+          Current Turn: {gameState.players[gameState.currentPlayer].name}
+        </div>
       </div>
-      <Track camels={gameState.camels} />
-      {/* {JSON.stringify(roundState, null, 4)} */}
-      {/* <DiceRoller onRoll={handleRoleDice} /> */}
-      <div style={{ margin: "40px" }}>
-        {gameState.winner ? (
-          <h2 style={{ textAlign: "center", color: gameState.winner }}>
-            {gameState.winner.charAt(0).toUpperCase() + gameState.winner.slice(1)}{" "}
-            Camel Wins!
-          </h2>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-            <button 
-               style={{
-                margin: "20px auto",
+
+      {message && (
+        <div style={{
+          padding: "15px",
+          backgroundColor: "#FFE66D",
+          border: "2px solid #333",
+          borderRadius: "8px",
+          textAlign: "center",
+          fontSize: "18px",
+          fontWeight: "bold",
+          marginBottom: "20px",
+          animation: "fadeIn 0.5s ease-in"
+        }}>
+          {message}
+        </div>
+      )}
+
+      <DicePyramid 
+        diceRolledThisRound={gameState.diceRolledThisRound}
+        availableDice={gameState.dice.filter(d => !gameState.diceRolledThisRound.includes(d))}
+      />
+
+      <div onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (placingDesertTile && target.style.position === 'absolute') {
+          // This is a track tile click - handled by track positions
+        }
+      }}>
+        <Track 
+          camels={gameState.camels} 
+          desertTiles={gameState.desertTiles}
+          onPlaceDesertTile={placingDesertTile ? handleTrackClick : undefined}
+        />
+      </div>
+
+      <div style={{ margin: "30px 0", textAlign: "center" }}>
+        <h2>Leaderboard</h2>
+        <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+          {leaderboard.map((camel, index) => (
+            <div
+              key={camel.color}
+              style={{
                 padding: "10px 20px",
-                fontSize: "18px",
-                backgroundColor: "#FF0000",
-                color: "white",
-                border: "none",
-                borderRadius: "5px",
-                cursor: "pointer",
+                backgroundColor: camel.color,
+                color: camel.color === "yellow" || camel.color === "white" ? "black" : "white",
+                borderRadius: "8px",
+                fontWeight: "bold",
+                border: "3px solid #333"
               }}
-            onClick={() => {
-              console.log('ready')
-              setIsGameRunning(true)
+            >
+              {index + 1}. {camel.color.toUpperCase()} (Pos: {camel.position})
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ margin: "40px 0" }}>
+        {gameState.winner ? (
+          <div style={{ textAlign: "center" }}>
+            <h2 style={{ 
+              color: gameState.winner,
+              fontSize: "48px",
+              textShadow: "3px 3px 6px rgba(0,0,0,0.3)"
             }}>
-              Auto play
-            </button>
-            {roundState.activeDice.length >= roundState.maxActiveDice ? (
-              <button
-                style={{
-                margin: "20px auto",
-                padding: "10px 20px",
-                fontSize: "18px",
-                backgroundColor: "#ffc107",
+              🏆 {gameState.winner.toUpperCase()} CAMEL WINS! 🏆
+            </h2>
+            <button
+              onClick={handleReset}
+              style={{
+                margin: "20px",
+                padding: "15px 30px",
+                fontSize: "20px",
+                backgroundColor: "#4CAF50",
                 color: "white",
                 border: "none",
-                borderRadius: "5px",
+                borderRadius: "8px",
                 cursor: "pointer",
-                }}
-                onClick={handleNewRound}
-              >
-                Next round
-              </button>
-            ) : (
-              <button
-                style={{
-                  margin: "20px auto",
-                  padding: "10px 20px",
-                  fontSize: "18px",
-                  backgroundColor: "#007bff",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "5px",
-                  cursor: "pointer",
-                }}
-                onClick={handleRoleDice}
-              >
-                Roll Dice
-              </button>
-            )}
-            {/* <DiceRoller onRoll={handleRoleDice} /> */}
+                fontWeight: "bold"
+              }}
+            >
+              🔄 New Game
+            </button>
+          </div>
+        ) : (
+          <div style={{ 
+            display: 'flex', 
+            gap: '15px', 
+            justifyContent: 'center',
+            flexWrap: 'wrap'
+          }}>
+            <button 
+              onClick={() => setIsGameRunning(!isGameRunning)}
+              style={{
+                padding: "15px 30px",
+                fontSize: "18px",
+                backgroundColor: isGameRunning ? "#FF5722" : "#4CAF50",
+                color: "white",
+                border: "3px solid #333",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "bold"
+              }}
+            >
+              {isGameRunning ? "⏸ Pause Auto Play" : "▶ Start Auto Play"}
+            </button>
+            
+            <button
+              onClick={handleRollDice}
+              disabled={isGameRunning}
+              style={{
+                padding: "15px 30px",
+                fontSize: "18px",
+                backgroundColor: "#2196F3",
+                color: "white",
+                border: "3px solid #333",
+                borderRadius: "8px",
+                cursor: isGameRunning ? "not-allowed" : "pointer",
+                fontWeight: "bold",
+                opacity: isGameRunning ? 0.5 : 1
+              }}
+            >
+              🎲 Roll Dice
+            </button>
+
+            <button
+              onClick={handleReset}
+              style={{
+                padding: "15px 30px",
+                fontSize: "18px",
+                backgroundColor: "#FF9800",
+                color: "white",
+                border: "3px solid #333",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: "bold"
+              }}
+            >
+              🔄 Reset Game
+            </button>
           </div>
         )}
       </div>
-      {/* <button onClick={startGameDice}>Start Game Dice</button>
-      <button onClick={roleCrazyDice}>Role Crazy Dice</button>
-      <button onClick={roleCrazyDice}>Role Dice in round {roundState.round}</button> */}
-      {/* <div style={{ margin: '20px auto' }}>
-      <button onClick={handleRoleDice}>Role Dice in round {roundState.round}</button>
-      <button onClick={handleNewRound}>new round</button>
-    </div> */}
-      <PlayerDashboard onPlaceBet={handlePlaceBet} />
-      <pre
-        style={{
-          width: "500px",
-          margin: "20px auto",
-          padding: "10px",
-          backgroundColor: "#000",
-          border: "1px solid #ddd",
-          borderRadius: "5px",
-          overflowX: "auto",
-        }}
-      >
-        {JSON.stringify(gameState.camels, null, 4)}
-      </pre>
+
+      <PlayerDashboard 
+        players={gameState.players}
+        currentPlayer={gameState.currentPlayer}
+        legBets={gameState.legBets}
+        onPlaceLegBet={handlePlaceLegBet}
+        onPlaceDesertTile={handlePlaceDesertTile}
+      />
     </div>
   );
 };
