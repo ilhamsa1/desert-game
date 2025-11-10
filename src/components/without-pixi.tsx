@@ -799,6 +799,12 @@ const CamelRaceGame: React.FC = () => {
       const message = data as WebRTCMessage;
       
       if (message.type === 'PLAYER_JOIN') {
+        // Validate player data
+        if (!message.player || !message.player.id || !message.player.name) {
+          console.error('Invalid player data received:', message.player);
+          return;
+        }
+        
         // Add remote player to lobby
         setLobbyPlayers(prev => {
           const exists = prev.some(p => p.id === message.player.id);
@@ -821,22 +827,47 @@ const CamelRaceGame: React.FC = () => {
         setMessage(`${message.player.name} joined the lobby!`);
       } else if (message.type === 'LOBBY_UPDATE') {
         // Receive lobby update from host
-        if (message.players && Array.isArray(message.players)) {
-          setLobbyPlayers(message.players);
+        if (message.players && Array.isArray(message.players) && message.players.length > 0) {
+          // Validate all players have required properties
+          const validPlayers = message.players.filter(p => p && p.id && p.name);
+          if (validPlayers.length === message.players.length) {
+            setLobbyPlayers(message.players);
+          } else {
+            console.error('Received lobby update with invalid player data');
+          }
         }
       } else if (message.type === 'GAME_START') {
-        // Game is starting
+        // Game is starting - validate game state
         if (message.gameState && message.gameState.players && message.gameState.players.length > 0) {
-          setGameState(message.gameState);
-          setSetupMode('game');
-          setMessage('Game started by host!');
+          // Validate all players have required properties
+          const allPlayersValid = message.gameState.players.every(p => 
+            p && p.id && p.name && typeof p.money === 'number'
+          );
+          
+          if (allPlayersValid) {
+            setGameState(message.gameState);
+            setSetupMode('game');
+            setMessage('Game started by host!');
+          } else {
+            console.error('Received game start with invalid player data');
+            setMessage('Error: Invalid game state received from host');
+          }
         }
       } else if (message.type === 'GAME_STATE_UPDATE') {
-        // Sync game state
+        // Sync game state - validate before applying
         if (message.gameState && message.gameState.players && message.gameState.players.length > 0) {
-          setGameState(message.gameState);
-          if (message.message) {
-            setMessage(message.message);
+          // Validate all players have required properties
+          const allPlayersValid = message.gameState.players.every(p => 
+            p && p.id && p.name && typeof p.money === 'number'
+          );
+          
+          if (allPlayersValid) {
+            setGameState(message.gameState);
+            if (message.message) {
+              setMessage(message.message);
+            }
+          } else {
+            console.error('Received invalid game state update, skipping');
           }
         }
       } else if (message.type === 'PLAYER_ACTION') {
@@ -932,12 +963,17 @@ const CamelRaceGame: React.FC = () => {
           setConnections([conn]);
           connectionsRef.current = [conn];
 
-          // Send player info to host
+          // Send player info to host - with validation
           const localPlayer = lobbyPlayers[0];
-          conn.send({
-            type: 'PLAYER_JOIN',
-            player: localPlayer,
-          });
+          if (localPlayer && localPlayer.id && localPlayer.name) {
+            conn.send({
+              type: 'PLAYER_JOIN',
+              player: localPlayer,
+            });
+          } else {
+            console.error('Cannot join - invalid local player data');
+            setMessage('Error: Failed to join room (invalid player data)');
+          }
         });
 
         conn.on('error', (err) => {
@@ -1161,7 +1197,10 @@ const CamelRaceGame: React.FC = () => {
     if (!gameState || gameState.gameEnded || setupMode !== "game") return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
-    if (!currentPlayer) return;
+    if (!currentPlayer || !currentPlayer.id || !currentPlayer.name) {
+      console.error('Invalid current player in bot turn:', currentPlayer);
+      return;
+    }
     
     // Don't trigger bot actions if we're waiting for manual next turn advancement
     if (currentPlayer.isBot && !waitingForNextTurn) {
@@ -1238,7 +1277,11 @@ const CamelRaceGame: React.FC = () => {
     if (!gameState || gameState.gameEnded) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
-    if (!currentPlayer) return;
+    if (!currentPlayer || !currentPlayer.id || !currentPlayer.name) {
+      console.error('Invalid current player state:', currentPlayer);
+      setMessage('Error: Invalid player state detected');
+      return;
+    }
     
     // If this is a local player action in multiplayer, broadcast it
     if (currentPlayer.isLocal && !skipDialog && connections.length > 0) {
@@ -1436,7 +1479,11 @@ const CamelRaceGame: React.FC = () => {
     if (!placingTile || !gameState) return;
 
     const currentPlayer = gameState.players[gameState.currentPlayer];
-    if (!currentPlayer) return;
+    if (!currentPlayer || !currentPlayer.id || !currentPlayer.name) {
+      console.error('Invalid current player state:', currentPlayer);
+      setMessage('Error: Invalid player state detected');
+      return;
+    }
 
     // Check validity
     if (position === 0) {
