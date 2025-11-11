@@ -781,6 +781,12 @@ const CamelRaceGame: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<string>("");
   const peerRef = useRef<Peer | null>(null);
   const connectionsRef = useRef<DataConnection[]>([]);
+  const isHostRef = useRef<boolean>(false); // Ref to avoid stale closure issues
+
+  // Keep isHostRef in sync with isHost state
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
 
   // Broadcast data to all connected peers
   const broadcastToPeers = useRef((data: WebRTCMessage) => {
@@ -812,9 +818,10 @@ const CamelRaceGame: React.FC = () => {
           const updatedPlayers = [...prev, message.player];
           
           // If host, broadcast updated lobby state to ALL peers (not just the new one)
-          if (isHost) {
+          if (isHostRef.current) {
             // Use setTimeout to ensure this runs after state update
             setTimeout(() => {
+              console.log('Host broadcasting lobby update to all peers:', updatedPlayers);
               broadcastToPeers.current({
                 type: 'LOBBY_UPDATE',
                 players: updatedPlayers,
@@ -822,6 +829,7 @@ const CamelRaceGame: React.FC = () => {
             }, 0);
           }
           
+          console.log('Updated lobby players:', updatedPlayers);
           return updatedPlayers;
         });
         setMessage(`${message.player.name} joined the lobby!`);
@@ -1089,7 +1097,7 @@ const CamelRaceGame: React.FC = () => {
     setLobbyPlayers([...lobbyPlayers, newBot]);
     
     // Broadcast bot addition to all peers
-    if (isHost) {
+    if (isHostRef.current) {
       broadcastToPeers.current({
         type: 'BOT_ADD',
         bot: newBot,
@@ -1101,7 +1109,7 @@ const CamelRaceGame: React.FC = () => {
     setLobbyPlayers(lobbyPlayers.filter(p => p.id !== botId));
     
     // Broadcast bot removal to all peers
-    if (isHost) {
+    if (isHostRef.current) {
       broadcastToPeers.current({
         type: 'BOT_REMOVE',
         botId,
@@ -1124,7 +1132,7 @@ const CamelRaceGame: React.FC = () => {
     setMessage("Game started! Place your bets or roll the dice.");
     
     // Broadcast game start to all peers
-    if (isHost) {
+    if (isHostRef.current) {
       broadcastToPeers.current({
         type: 'GAME_START',
         gameState: newGameState,
@@ -1184,13 +1192,13 @@ const CamelRaceGame: React.FC = () => {
 
   // Sync game state to peers whenever it changes
   useEffect(() => {
-    if (gameState && isHost && connections.length > 0) {
+    if (gameState && isHostRef.current && connections.length > 0) {
       broadcastToPeers.current({
         type: 'GAME_STATE_UPDATE',
         gameState: gameState,
       });
     }
-  }, [gameState, isHost, connections.length]);
+  }, [gameState, connections.length]);
 
   // Handle bot turn
   useEffect(() => {
