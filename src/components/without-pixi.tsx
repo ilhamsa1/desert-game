@@ -1830,7 +1830,6 @@ const CamelRaceGame: React.FC = () => {
 
           {/* Player List */}
           <div style={{ marginBottom: "30px" }}>
-            {console.log('Rendering lobby with players:', lobbyPlayers)}
             {lobbyPlayers.map((player, index) => (
               <div
                 key={player.id}
