@@ -141,7 +141,7 @@ const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number, spect
     ? Math.max(...camelsAtDestination.map(c => c.stackOrder))
     : -1;
 
-  return camels.map(camel => {
+  const updatedCamels = camels.map(camel => {
     const movingIndex = movingCamels.findIndex(c => c.color === camel.color);
     
     if (movingIndex >= 0) {
@@ -155,6 +155,29 @@ const moveCamel = (camels: Camel[], camelColor: CamelColor, steps: number, spect
     
     return camel;
   });
+
+  // Normalize stack orders for camels remaining at the old position
+  const camelsRemainingAtOldPosition = updatedCamels.filter(
+    c => c.position === selectedCamel.position
+  );
+  
+  if (camelsRemainingAtOldPosition.length > 0) {
+    // Sort by current stack order and reassign sequential stack orders
+    const sortedRemaining = [...camelsRemainingAtOldPosition].sort((a, b) => a.stackOrder - b.stackOrder);
+    
+    return updatedCamels.map(camel => {
+      const remainingIndex = sortedRemaining.findIndex(c => c.color === camel.color);
+      if (remainingIndex >= 0) {
+        return {
+          ...camel,
+          stackOrder: remainingIndex,
+        };
+      }
+      return camel;
+    });
+  }
+
+  return updatedCamels;
 };
 
 // Check if game ended (only racing camels can win)
@@ -1129,8 +1152,8 @@ const CamelRaceGame: React.FC = () => {
     
     setGameState(newGameState);
     setSetupMode("game");
-    setWaitingForNextTurn(true);
-    setMessage("Game ready! Click 'Next Turn' to begin the first turn.");
+    setWaitingForNextTurn(false);
+    setMessage("Game started! Roll the dice to begin.");
     
     // Broadcast game start to all peers
     if (isHostRef.current) {
@@ -1188,8 +1211,8 @@ const CamelRaceGame: React.FC = () => {
 
     setGameState(newGameState);
     setSetupMode("game");
-    setWaitingForNextTurn(true);
-    setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Click 'Next Turn' to begin.` : "Game ready! Click 'Next Turn' to begin the first turn.");
+    setWaitingForNextTurn(false);
+    setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Roll the dice to begin.` : "Game started! Roll the dice to begin.");
   };
 
   // Sync game state to peers whenever it changes
