@@ -1129,7 +1129,8 @@ const CamelRaceGame: React.FC = () => {
     
     setGameState(newGameState);
     setSetupMode("game");
-    setMessage("Game started! Place your bets or roll the dice.");
+    setWaitingForNextTurn(true);
+    setMessage("Game ready! Click 'Next Turn' to begin the first turn.");
     
     // Broadcast game start to all peers
     if (isHostRef.current) {
@@ -1187,7 +1188,8 @@ const CamelRaceGame: React.FC = () => {
 
     setGameState(newGameState);
     setSetupMode("game");
-    setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Game started!` : "Game started! Place your bets or roll the dice.");
+    setWaitingForNextTurn(true);
+    setMessage(mode === "join" ? `Joined room ${roomCodeInput.toUpperCase()}! Click 'Next Turn' to begin.` : "Game ready! Click 'Next Turn' to begin the first turn.");
   };
 
   // Sync game state to peers whenever it changes
